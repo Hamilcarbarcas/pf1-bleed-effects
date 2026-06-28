@@ -1,0 +1,37 @@
+{
+  "id": "pf1-bleed-effects",
+  "title": "PF1 Bleed Effects",
+  "description": "<p>Turns the Pathfinder 1e <em>bleed</em> condition into automated, recurring damage. Bleed effects deal their damage at the start of the bleeding actor's turn, and can target hit points or ability damage/drain. Apply bleed via the <code>@Bleed[...]</code> enricher or the module API.</p>",
+  "authors": [
+    {
+      "name": "Patrick",
+      "flags": {}
+    }
+  ],
+  "version": "1.0.0",
+  "compatibility": {
+    "minimum": "13",
+    "verified": "13"
+  },
+  "relationships": {
+    "systems": [
+      {
+        "id": "pf1",
+        "type": "system",
+        "compatibility": {
+          "minimum": "11"
+        }
+      }
+    ]
+  },
+  "esmodules": [
+    "scripts/bleed.mjs",
+    "scripts/bleed-enricher.mjs",
+    "scripts/bleed-display.mjs"
+  ],
+  "styles": [
+    "styles/bleed.css"
+  ],
+  "socket": true,
+  "flags": {}
+}

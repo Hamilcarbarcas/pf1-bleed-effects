@@ -1,0 +1,58 @@
+/* @Bleed enriched link — styled to read as a clickable blood-red pill.
+   Class-scoped only, to avoid clobbering button/FontAwesome rules elsewhere. */
+.pf1-bleed-link {
+  display: inline;
+  padding: 0 4px;
+  border: 1px solid #c0392b;
+  border-radius: 3px;
+  background: #faeaea;
+  color: #8b1a1a;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.pf1-bleed-link:hover {
+  text-shadow: 0 0 6px #c0392b;
+}
+
+.pf1-bleed-link i.fa-droplet {
+  color: #c0392b;
+}
+
+/* Bleed condition tooltip (actor sheet & token HUD) */
+.pf1-bleed-tooltip {
+  text-align: left;
+}
+
+.pf1-bleed-tooltip ul {
+  margin: 0.15em 0 0;
+  padding-left: 1.1em;
+}
+
+.pf1-bleed-tooltip-note {
+  display: block;
+  margin-top: 0.25em;
+  opacity: 0.75;
+  font-size: 0.9em;
+}
+
+/* Bleed block appended into Little Helper's Active Buffs HUD tooltip */
+.pf1-bleed-hud {
+  margin-top: 0.4em;
+  padding-top: 0.3em;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Bleed tick chat card */
+.pf1-bleed-card p {
+  margin: 0 0 0.25em;
+}
+
+.pf1-bleed-card ul {
+  margin: 0;
+  padding-left: 1.25em;
+}
+
+.pf1-bleed-card i.fa-droplet {
+  color: #c0392b;
+}
