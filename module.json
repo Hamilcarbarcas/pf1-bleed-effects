@@ -27,7 +27,8 @@
   "esmodules": [
     "scripts/bleed.mjs",
     "scripts/bleed-enricher.mjs",
-    "scripts/bleed-display.mjs"
+    "scripts/bleed-display.mjs",
+    "scripts/bleed-prompt.mjs"
   ],
   "styles": [
     "styles/bleed.css"

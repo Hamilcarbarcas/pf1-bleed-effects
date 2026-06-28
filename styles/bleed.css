@@ -36,6 +36,13 @@
   font-size: 0.9em;
 }
 
+/* Manual-application dialog */
+.pf1-bleed-dialog .notes {
+  margin: 0.5em 0 0;
+  opacity: 0.75;
+  font-size: 0.9em;
+}
+
 /* Bleed block appended into Little Helper's Active Buffs HUD tooltip */
 .pf1-bleed-hud {
   margin-top: 0.4em;

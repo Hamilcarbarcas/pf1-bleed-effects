@@ -1,88 +1,85 @@
 # PF1 Bleed Effects
 
-A Pathfinder 1e (Foundry VTT) module that turns the **bleed** condition into automated, recurring damage.
+Adds automated, configurable bleed damage to the Pathfinder 1e **bleed** condition.
 
-While an actor is bleeding, registered bleed effects deal their damage **at the start of that actor's turn** in combat. Bleed can target hit points or any ability score's damage/drain.
+## What it does
 
-## How it works
-
-- Bleed effects are stored on the actor and the PF1 `bleed` condition is shown as the visual marker.
-- Each round, every effect is rolled and grouped by **kind** (`hp`, or `<ability>.<damage|drain>`). Only the **highest rolled result of each kind** is applied — so two hit-point bleeds don't stack, but a hit-point bleed and a Constitution bleed both land in the same round.
-- HP bleed is applied with the system's damage routine: it **ignores DR/ER**, never prompts a dialog, and draws from temporary HP first.
-- Ability bleed is written straight to `system.abilities.<abl>.damage` / `.drain`, so it coexists cleanly with other automation (e.g. Nevela's Automation Suite, which reads/increments the same field).
-- The active GM performs all damage application, so effects are applied exactly once regardless of how many clients are connected.
+- Adds an enricher to apply specific types and amounts of bleed damage.
+- Prompts for an amount and type when the bleed condition is applied by hand.
+- An API function to apply bleed via scripts/macros.
+- Tool-tip display of active bleed effects.
+- Multiple bleeds of the **same damage type don't stack** — only the highest damage is applied to each.
 
 ## Applying bleed
 
-### Enricher
+### With the `@Bleed` text button
 
-Use the `@Bleed[...]` enricher anywhere PF1 enriches text (item descriptions, journals, chat). It follows the standard PF1 `@Verb[primary;options]{label}` convention, where the primary argument is the **damage formula**:
+`@Bleed` extends PF1's built-in text enrichers — the same system behind `@Damage`, `@Condition`, and the rest. Type `@Bleed[...]` into any description, journal, or chat message and it renders as a clickable button; the number or formula in the brackets is how much bleed it deals each round.
 
-| Example | Effect |
+| You type | What it does |
 | --- | --- |
 | `@Bleed[1d6]` | 1d6 hit point bleed |
+| `@Bleed[5]` | 5 hit point bleed |
 | `@Bleed[@cl;type=con]` | Constitution **damage** bleed equal to caster level |
 | `@Bleed[2;type=str;mode=drain]` | 2 Strength **drain** bleed |
-| `@Bleed[1d4]{Open Wound}` | 1d4 HP bleed with a custom label |
+| `@Bleed[1d4]{Open Wound}` | 1d4 hit point bleed, shown with a custom label |
 
-Options:
+Options after the formula (separated by `;`):
 
-- `type` — `hp` (default) or an ability key (`str`, `dex`, `con`, `int`, `wis`, `cha`).
-- `mode` — `damage` (default) or `drain`. Ignored for `type=hp`.
+- **`type`** — `hp` (the default), or an ability: `str`, `dex`, `con`, `int`, `wis`, `cha`.
+- **`mode`** — `damage` (the default) or `drain`. Only matters for ability bleed.
 
-`@`-references such as `@cl` are resolved **when the link is clicked**, using the roll data of the message's source actor (the one inflicting the bleed). Dice terms like `1d6` are left intact and rolled fresh each round.
+To apply it, **target** the creature(s) you want to bleed (or select their token) and click the button. Actor variables (such as `@abilities.str.mod`) are supported, using the source actor's values.
 
-Clicking the link applies the bleed to your current targets (falling back to controlled tokens / your assigned character), using PF1's standard target resolution.
+### By applying the condition
 
-### API
+You can also bleed a creature without the enricher — just put the **bleed condition** on it the usual way (the token's status icons, the character sheet, etc.). A small dialog asks for the amount/formula and type, and that becomes the creature's bleed. Choose **Marker Only** to leave the condition inert, the same as vanilla bleed.
 
-Exposed as `game.modules.get("pf1-bleed-effects").api` and the global `pf1BleedEffects`:
+This prompt can be turned off under the module's **Prompt on manual bleed** setting (e.g. if you prefer to configure bleed only through the enricher or API).
+
+### Determining bleed damage
+
+Roll based bleed damage is re-rolled each round. If multiple overlapping bleed effects are on a character, the highest damage effect is applied (determined after the rolls are resolved).
+
+## Seeing what's bleeding
+
+When a creature has bleed on it, hover its **bleed condition** to see a list of every active bleed and how much each deals:
+
+- On the **character sheet**, in the Buffs tab.
+- On the **token's** status icons.
+- Supports **Koboldworks – Little Helper's** buff display (optional) - includes the bleed effects in the tooltip.
+
+## Stopping bleed
+
+Just **remove the bleed condition** like any other — click it off on the token's status icons, the character sheet, or Little Helper's display. The stored bleed amounts are cleared right away, so if you apply bleed again later it starts fresh instead of piling onto the old wounds.
+
+## Good to know
+
+- **A GM needs to be logged in** for bleed to be dealt — the GM's client handles it behind the scenes to avoid issues with duplicate applications. Players can still apply bleed to a target, but the back-end processing is done via the GM client.
+- Bleed **ignores damage reduction and resistances** and pulls from temporary hit points first.
+- Ending bleed effects are still manual, there is no support yet for automated clearing of bleed effects via heal checks or hit point healing.
+
+
+## API
+
+If you want to apply or clear bleed from a macro or script, there's an API on `game.modules.get("pf1-bleed-effects").api` (also the global `pf1BleedEffects`):
 
 ```js
-// Register an ongoing bleed (accepts an Actor, Token, TokenDocument, or UUID)
+// Apply bleed to a token or actor
 await pf1BleedEffects.apply(token, { formula: "1d6", kind: "hp" });
 await pf1BleedEffects.apply(actor, { formula: "1", kind: "con.damage" });
 
-// Optionally lock @-references against a specific source actor
-await pf1BleedEffects.apply(target, {
-  formula: "@cl",
-  kind: "con.damage",
-  sourceRollData: casterActor.getRollData(),
-});
+// See what's on a creature
+pf1BleedEffects.list(token);
 
-// Inspect current effects
-pf1BleedEffects.list(token); // -> [{ id, formula, kind }, ...]
-
-// Remove one kind, or all bleed
+// Remove one type, or all bleed
 await pf1BleedEffects.clear(token, { kind: "hp" });
 await pf1BleedEffects.clear(token);
 ```
 
-`kind` is `"hp"` or `"<ability>.<damage|drain>"` (e.g. `"con.damage"`, `"str.drain"`).
-
-## Seeing what bleed is active
-
-When an actor has registered bleed, the **bleed condition** gains a tooltip listing each active effect (formula + kind):
-
-- **Actor sheet** — hover the bleed condition in the **Buffs** tab.
-- **Token HUD** — hover the bleed status in the token's effects menu.
-- **Little Helper Active Buffs HUD** — if [Koboldworks – Little Helper](https://gitlab.com/koboldworks/pf1/little-helper) is active, the bleed summary is appended to its top-right condition tooltip on token select.
-
-If more than one effect is present, the tooltip notes that only the highest of each type applies per round.
-
-Removing the bleed condition (token HUD, sheet, Little Helper, etc.) immediately clears its stored effects, so re-applying bleed starts fresh rather than stacking onto the old amounts.
-
-## Stopping bleed
-
-- Call `pf1BleedEffects.clear(...)`, **or**
-- Remove the **bleed** condition from the token HUD. The next time that actor would tick, its stored bleed effects are cleared automatically.
-
-## Notes & limitations
-
-- A GM must be connected for bleed to be applied. The active GM (Foundry's `game.users.activeGM`) does the work.
-- v1 intentionally omits save-to-end DCs, "healing ends bleed", and per-effect durations. Bleed persists until cleared or the condition is removed.
+`kind` is `"hp"` or `"<ability>.<damage|drain>"` (for example `"con.damage"` or `"str.drain"`).
 
 ## Requirements
 
-- Pathfinder 1e system (`pf1`) v11+.
-- Foundry VTT v13.
+- Pathfinder 1e system, version 11 or newer
+- Foundry VTT v13
