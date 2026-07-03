@@ -8,7 +8,7 @@
       "flags": {}
     }
   ],
-  "version": "1.0.0",
+  "version": "0.0.0",
   "compatibility": {
     "minimum": "13",
     "verified": "13"
@@ -25,13 +25,13 @@
     ]
   },
   "esmodules": [
-    "scripts/bleed.mjs",
-    "scripts/bleed-enricher.mjs",
-    "scripts/bleed-display.mjs",
-    "scripts/bleed-prompt.mjs"
+    "src/scripts/bleed.mjs",
+    "src/scripts/bleed-enricher.mjs",
+    "src/scripts/bleed-display.mjs",
+    "src/scripts/bleed-prompt.mjs"
   ],
   "styles": [
-    "styles/bleed.css"
+    "src/styles/bleed.css"
   ],
   "socket": true,
   "flags": {}
