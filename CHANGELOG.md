@@ -9,10 +9,17 @@
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-06-28
+
 ### Added
-### Changed
-### Fixed
+- Prompt for manual entry of bleed effects.
 
----
+## [0.9.1] - 2026-06-28
 
-_Releases prior to this changelog are documented on the [GitHub Releases page](https://github.com/Hamilcarbarcas/pf1-bleed-effects/releases)._
+### Added
+- Automated GitHub Actions release workflow.
+
+## [0.9.0] - 2026-06-28
+
+### Added
+- Initial release.
