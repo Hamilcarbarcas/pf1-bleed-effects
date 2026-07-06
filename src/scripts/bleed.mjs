@@ -11,10 +11,12 @@
  * flag array is the source of truth for how much damage it deals.
  */
 
-export const MODULE_ID = "pf1-bleed-effects";
+import { MODULE_ID, SOCKET, resolveActor, isActiveGM } from "./dot-common.mjs";
+
+export { MODULE_ID };
+
 const FLAG_KEY = "effects";
 const CONDITION_ID = "bleed";
-const SOCKET = `module.${MODULE_ID}`;
 
 const ABILITIES = ["str", "dex", "con", "int", "wis", "cha"];
 const MODES = ["damage", "drain"];
@@ -75,23 +77,6 @@ export function kindLabel(kind) {
  * -------------------------------------------- */
 
 /**
- * Resolve an Actor from an Actor, Token, TokenDocument, or UUID string.
- *
- * @param {Actor|Token|TokenDocument|string} ref
- * @returns {Actor|null}
- */
-function resolveActor(ref) {
-  if (!ref) return null;
-  if (ref instanceof Actor) return ref;
-  if (ref.actor instanceof Actor) return ref.actor; // Token / TokenDocument / placeable
-  if (typeof ref === "string") {
-    const doc = fromUuidSync(ref);
-    return doc instanceof Actor ? doc : (doc?.actor ?? null);
-  }
-  return null;
-}
-
-/**
  * Get a deep clone of the actor's bleed effect array (safe to mutate).
  *
  * @param {Actor} actor
@@ -117,15 +102,6 @@ function resolveFormula(formula, rollData) {
     console.error(`${MODULE_ID} | Failed to resolve formula`, formula, err);
     return String(formula);
   }
-}
-
-/**
- * Whether this client is the single GM responsible for executing writes.
- *
- * @returns {boolean}
- */
-function isActiveGM() {
-  return game.user === game.users.activeGM;
 }
 
 /* -------------------------------------------- *
@@ -368,7 +344,10 @@ function onSocket(data) {
 export const BleedAPI = { apply, clear, list, describe, tickActor, parseKind, canonicalKind };
 
 Hooks.once("init", () => {
-  game.modules.get(MODULE_ID).api = BleedAPI;
+  // Merge (don't overwrite): the burning engine also contributes to `module.api`.
+  const mod = game.modules.get(MODULE_ID);
+  mod.api ??= {};
+  Object.assign(mod.api, BleedAPI);
   globalThis.pf1BleedEffects = BleedAPI; // convenience for macros
 });
 

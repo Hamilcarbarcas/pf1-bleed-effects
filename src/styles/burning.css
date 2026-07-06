@@ -1,0 +1,56 @@
+/* @Burning enriched link — styled to read as a clickable ember pill.
+   Class-scoped only, to avoid clobbering button/FontAwesome rules elsewhere. */
+.pf1-burning-link {
+  display: inline;
+  padding: 0 4px;
+  border: 1px solid #d35400;
+  border-radius: 3px;
+  background: #fdf0e6;
+  color: #a04000;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.pf1-burning-link:hover {
+  text-shadow: 0 0 6px #e67e22;
+}
+
+.pf1-burning-link i.fa-fire {
+  color: #e67e22;
+}
+
+/* Burning chat cards (ignite / burn / extinguish / save prompt) */
+.pf1-burning-card p {
+  margin: 0 0 0.25em;
+}
+
+.pf1-burning-card i.fa-fire {
+  color: #e67e22;
+}
+
+.pf1-burning-card.pf1-burning-extinguish i.fa-fire-extinguisher {
+  color: #2980b9;
+}
+
+/* Built-in Reflex-save prompt button on the burning card */
+button.pf1-burning-save {
+  display: block;
+  width: 100%;
+  margin-top: 0.35em;
+  padding: 0.25em 0.5em;
+  border: 1px solid #d35400;
+  border-radius: 3px;
+  background: linear-gradient(#fbe3d0, #f6c9a6);
+  color: #7a2e00;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+button.pf1-burning-save:hover:not(:disabled) {
+  box-shadow: 0 0 6px #e67e22;
+}
+
+button.pf1-burning-save:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

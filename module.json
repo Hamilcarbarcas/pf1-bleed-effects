@@ -1,7 +1,7 @@
 {
   "id": "pf1-bleed-effects",
   "title": "PF1 Bleed Effects",
-  "description": "<p>Turns the Pathfinder 1e <em>bleed</em> condition into automated, recurring damage. Bleed effects deal their damage at the start of the bleeding actor's turn, and can target hit points or ability damage/drain. Apply bleed via the <code>@Bleed[...]</code> enricher or the module API.</p>",
+  "description": "<p>Turns the Pathfinder 1e <em>bleed</em> and <em>burning</em> conditions into automated, recurring damage. Bleed deals its damage at the start of the afflicted actor's turn and can target hit points or ability damage/drain. Burning deals 1d6 fire per round, gated by a turn-start DC 15 Reflex save to put it out (using Roll Requests when installed, or a self-contained save-button card otherwise). Apply either via the <code>@Bleed[...]</code> / <code>@Burning[...]</code> enrichers or the module API.</p>",
   "authors": [
     {
       "name": "Patrick",
@@ -28,10 +28,13 @@
     "src/scripts/bleed.mjs",
     "src/scripts/bleed-enricher.mjs",
     "src/scripts/bleed-display.mjs",
-    "src/scripts/bleed-prompt.mjs"
+    "src/scripts/bleed-prompt.mjs",
+    "src/scripts/burning.mjs",
+    "src/scripts/burning-enricher.mjs"
   ],
   "styles": [
-    "src/styles/bleed.css"
+    "src/styles/bleed.css",
+    "src/styles/burning.css"
   ],
   "socket": true,
   "flags": {}
