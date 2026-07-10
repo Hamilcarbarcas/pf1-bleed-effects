@@ -4,7 +4,7 @@
   "description": "<p>Turns the Pathfinder 1e <em>bleed</em> and <em>burning</em> conditions into automated, recurring damage. Bleed deals its damage at the start of the afflicted actor's turn and can target hit points or ability damage/drain. Burning deals 1d6 fire per round, gated by a turn-start DC 15 Reflex save to put it out (using Roll Requests when installed, or a self-contained save-button card otherwise). Apply either via the <code>@Bleed[...]</code> / <code>@Burning[...]</code> enrichers or the module API.</p>",
   "authors": [
     {
-      "name": "Patrick",
+      "name": "Hamilcarbarcas",
       "flags": {}
     }
   ],
