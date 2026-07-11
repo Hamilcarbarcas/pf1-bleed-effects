@@ -59,13 +59,13 @@ function enrich(match) {
   a.classList.add("pf1-bleed-link");
   a.dataset.formula = f;
   a.dataset.kind = kind;
-  a.dataset.tooltip = `Apply bleed (${kind}): ${f}`;
+  a.dataset.tooltip = game.i18n.format("BLD.Enricher.Tooltip", { kind, formula: f });
   a.dataset.tooltipClass = "pf1";
 
   const i = document.createElement("i");
   i.classList.add("fa-solid", "fa-droplet");
   i.inert = true;
-  a.append(i, " ", label?.trim() || `Bleed: ${f}`);
+  a.append(i, " ", label?.trim() || game.i18n.format("BLD.Enricher.DefaultLabel", { formula: f }));
 
   return a;
 }
@@ -124,7 +124,7 @@ async function onClick(event) {
 
   const actors = getActors(a);
   if (!actors.length) {
-    ui.notifications.warn("Bleed: no target. Select or target a token first.");
+    ui.notifications.warn(game.i18n.localize("BLD.Enricher.NoTarget"));
     return;
   }
 

@@ -1,0 +1,50 @@
+{
+  "BLD.Kind.HP": "HP",
+  "BLD.Kind.Damage": "Damage",
+  "BLD.Kind.Drain": "Drain",
+
+  "BLD.Error.NoTarget": "Bleed: no valid target actor.",
+  "BLD.Error.NoFormula": "Bleed: no damage formula provided.",
+  "BLD.Error.InvalidType": "Bleed: invalid type \"{kind}\".",
+
+  "BLD.Card.Suffers": "{name} suffers bleed:",
+
+  "BLD.Settings.PromptOnManual.Name": "Prompt on manual bleed",
+  "BLD.Settings.PromptOnManual.Hint": "When the bleed condition is applied by hand with no bleed configured, ask for an amount and type. Bleed applied via @Bleed or the API is unaffected.",
+
+  "BLD.Prompt.HitPoints": "Hit Points",
+  "BLD.Prompt.AmountLabel": "Amount / Formula",
+  "BLD.Prompt.TypeLabel": "Type",
+  "BLD.Prompt.ModeLabel": "Mode",
+  "BLD.Prompt.MarkerNote": "Choose <em>Marker Only</em> to leave the bleed condition inert (no automatic damage).",
+  "BLD.Prompt.Title": "Apply Bleed — {name}",
+  "BLD.Prompt.Apply": "Apply",
+  "BLD.Prompt.MarkerOnly": "Marker Only",
+
+  "BLD.Enricher.Tooltip": "Apply bleed ({kind}): {formula}",
+  "BLD.Enricher.DefaultLabel": "Bleed: {formula}",
+  "BLD.Enricher.NoTarget": "Bleed: no target. Select or target a token first.",
+
+  "BLD.Display.Heading": "Bleed",
+  "BLD.Display.HighestNote": "Highest of each type applies each round.",
+
+  "BLD.Condition.Burning": "Burning",
+
+  "BLD.Burning.Ignite": "{name} catches fire and takes {total} fire damage.",
+  "BLD.Burning.Extinguish": "{name} makes the save and puts out the flames.",
+  "BLD.Burning.Burn": "{name} fails to douse the flames and takes {total} fire damage.",
+  "BLD.Burning.AutoDamage": "{name} takes {total} fire damage from the flames.",
+  "BLD.Burning.AutoNoSave": "{name} takes {total} fire damage from the flames (no save attempted).",
+  "BLD.Burning.SaveFlavor": "{name} is on fire — Reflex DC {dc} to put it out.",
+  "BLD.Burning.Card.OnFire": "{name} is on fire!",
+  "BLD.Burning.Card.SaveButton": "Reflex Save (DC {dc}) to put out the flames",
+  "BLD.Burning.Error.NoTarget": "Burning: no valid target actor.",
+  "BLD.Burning.NoControl": "Burning: you don't control {name}.",
+
+  "BLD.Burning.Enricher.Tooltip": "Set on fire (1d6 fire/round, Reflex DC {dc} to put out)",
+  "BLD.Burning.Enricher.DefaultLabel": "Burning",
+  "BLD.Burning.Enricher.NoTarget": "Burning: no target. Select or target a token first.",
+
+  "BLD.Settings.SavePrompt.Name": "Reflex save vs. burning",
+  "BLD.Settings.SavePrompt.Hint": "When on, a burning creature may attempt a Reflex save at the start of its turn to put out the flames. When off, no save is prompted — a burning creature automatically takes 1d6 fire damage at the end of each of its turns until the burning condition is removed."
+}

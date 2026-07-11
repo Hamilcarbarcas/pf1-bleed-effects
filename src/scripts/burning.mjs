@@ -91,7 +91,7 @@ Hooks.on("pf1RegisterConditions", (registry) => {
 
   try {
     registry.register(MODULE_ID, CONDITION_ID, {
-      name: "Burning",
+      name: "BLD.Condition.Burning",
       texture: "icons/svg/fire.svg",
       showInAction: true,
       showInDefense: true,
@@ -166,7 +166,7 @@ async function _applyLocal(actor, { dc = DEFAULT_DC } = {}) {
   const total = await rollDamage(actor);
   if (total > 0) {
     await actor.applyDamage(total);
-    await postCard(actor, `catches fire and takes ${total} fire damage.`, "ignite");
+    await postCard(actor, game.i18n.format("BLD.Burning.Ignite", { name: `<strong>${actor.name}</strong>`, total }), "ignite");
   }
 }
 
@@ -197,7 +197,7 @@ async function _clearLocal(actor) {
 async function apply(ref, { dc = DEFAULT_DC } = {}) {
   const actor = resolveActor(ref);
   if (!actor) {
-    ui.notifications.error("Burning: no valid target actor.");
+    ui.notifications.error(game.i18n.localize("BLD.Burning.Error.NoTarget"));
     return;
   }
   const cleanDC = Number.isFinite(Number(dc)) ? Number(dc) : DEFAULT_DC;
@@ -258,14 +258,14 @@ async function resolveSave(actor, passed) {
 
   if (passed) {
     await _clearLocal(actor);
-    await postCard(actor, "makes the save and puts out the flames.", "extinguish");
+    await postCard(actor, game.i18n.format("BLD.Burning.Extinguish", { name: `<strong>${actor.name}</strong>` }), "extinguish");
     return;
   }
 
   if (isFireImmune(actor)) return;
   const total = await rollDamage(actor);
   if (total > 0) await actor.applyDamage(total);
-  await postCard(actor, `fails to douse the flames and takes ${total} fire damage.`, "burn");
+  await postCard(actor, game.i18n.format("BLD.Burning.Burn", { name: `<strong>${actor.name}</strong>`, total }), "burn");
 }
 
 /**
@@ -284,8 +284,8 @@ async function finalizePendingSaves(_combat) {
       if (actor?.statuses.has(CONDITION_ID) && !isFireImmune(actor)) {
         const total = await rollDamage(actor);
         if (total > 0) await actor.applyDamage(total);
-        const suffix = entry.noSave ? "." : " (no save attempted).";
-        await postCard(actor, `takes ${total} fire damage from the flames${suffix}`, "burn");
+        const key = entry.noSave ? "BLD.Burning.AutoDamage" : "BLD.Burning.AutoNoSave";
+        await postCard(actor, game.i18n.format(key, { name: `<strong>${actor.name}</strong>`, total }), "burn");
       }
     }
     pendingSaves.delete(actorUuid);
@@ -351,7 +351,7 @@ async function requestSaveViaRollRequests(actor, token, dc) {
     mode: "targeted",
     showDC: true,
     showResults: true,
-    flavor: `${actor.name} is on fire — Reflex DC ${dc} to put it out.`,
+    flavor: game.i18n.format("BLD.Burning.SaveFlavor", { name: actor.name, dc }),
     targetedActors: [
       {
         id: tokenDoc.id,
@@ -383,10 +383,12 @@ async function requestSaveViaRollRequests(actor, token, dc) {
  * @param {number} dc
  */
 async function postBuiltInSaveCard(actor, dc) {
+  const onFire = game.i18n.format("BLD.Burning.Card.OnFire", { name: `<strong>${actor.name}</strong>` });
+  const saveLabel = game.i18n.format("BLD.Burning.Card.SaveButton", { dc });
   const content = `<div class="pf1-burning-card" data-burning-save data-actor-uuid="${actor.uuid}" data-dc="${dc}">
-    <p><i class="fa-solid fa-fire"></i> <strong>${actor.name}</strong> is on fire!</p>
+    <p><i class="fa-solid fa-fire"></i> ${onFire}</p>
     <button type="button" class="pf1-burning-save" data-actor-uuid="${actor.uuid}" data-dc="${dc}">
-      <i class="fa-solid fa-person-running"></i> Reflex Save (DC ${dc}) to put out the flames
+      <i class="fa-solid fa-person-running"></i> ${saveLabel}
     </button>
   </div>`;
   await ChatMessage.create({ content, speaker: ChatMessage.getSpeaker({ actor }) });
@@ -410,7 +412,7 @@ async function onSaveButtonClick(event) {
   const actor = resolveActor(button.dataset.actorUuid);
   if (!actor) return;
   if (!actor.isOwner) {
-    ui.notifications.warn(`Burning: you don't control ${actor.name}.`);
+    ui.notifications.warn(game.i18n.format("BLD.Burning.NoControl", { name: actor.name }));
     return;
   }
 
@@ -452,13 +454,13 @@ async function onSaveButtonClick(event) {
  * Post a one-line burning chat card.
  *
  * @param {Actor} actor
- * @param {string} text - Sentence completing "<name> ...".
+ * @param {string} text - Full localized sentence (already includes the actor name).
  * @param {"ignite"|"burn"|"extinguish"} kind
  */
 async function postCard(actor, text, kind) {
   const icon = kind === "extinguish" ? "fa-fire-extinguisher" : "fa-fire";
   const content = `<div class="pf1-burning-card pf1-burning-${kind}">
-    <p><i class="fa-solid ${icon}"></i> <strong>${actor.name}</strong> ${text}</p>
+    <p><i class="fa-solid ${icon}"></i> ${text}</p>
   </div>`;
   await ChatMessage.create({ content, speaker: ChatMessage.getSpeaker({ actor }) });
 }
@@ -521,8 +523,8 @@ export const BurningAPI = { apply, clear, isBurning, DEFAULT_DC };
 
 Hooks.once("init", () => {
   game.settings.register(MODULE_ID, SETTING_SAVE, {
-    name: "Reflex save vs. burning",
-    hint: "When on, a burning creature may attempt a Reflex save at the start of its turn to put out the flames. When off, no save is prompted — a burning creature automatically takes 1d6 fire damage at the end of each of its turns until the burning condition is removed.",
+    name: "BLD.Settings.SavePrompt.Name",
+    hint: "BLD.Settings.SavePrompt.Hint",
     scope: "world",
     config: true,
     type: Boolean,

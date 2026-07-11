@@ -17,6 +17,9 @@
 - Burning API under `pf1BurningEffects` / `game.modules.get("pf1-bleed-effects").api.burning` (`apply`, `clear`, `isBurning`).
 - Coexists with Nevela's Automation Suite: defers to its `burning` condition when present, otherwise registers its own.
 
+### Changed
+- All user-facing text (settings, notifications, dialogs, chat cards, enricher labels, tooltips) is now localizable via `game.i18n` (English `lang/en.json` included).
+
 ## [0.9.2] - 2026-06-28
 
 ### Added

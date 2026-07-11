@@ -45,13 +45,13 @@ function enrich(match) {
   const a = document.createElement("a");
   a.classList.add("pf1-burning-link");
   a.dataset.dc = String(dc);
-  a.dataset.tooltip = `Set on fire (1d6 fire/round, Reflex DC ${dc} to put out)`;
+  a.dataset.tooltip = game.i18n.format("BLD.Burning.Enricher.Tooltip", { dc });
   a.dataset.tooltipClass = "pf1";
 
   const i = document.createElement("i");
   i.classList.add("fa-solid", "fa-fire");
   i.inert = true;
-  a.append(i, " ", label?.trim() || "Burning");
+  a.append(i, " ", label?.trim() || game.i18n.localize("BLD.Burning.Enricher.DefaultLabel"));
 
   return a;
 }
@@ -92,7 +92,7 @@ async function onClick(event) {
 
   const actors = getActors(a);
   if (!actors.length) {
-    ui.notifications.warn("Burning: no target. Select or target a token first.");
+    ui.notifications.warn(game.i18n.localize("BLD.Burning.Enricher.NoTarget"));
     return;
   }
 

@@ -14,8 +14,8 @@ const SETTING_PROMPT = "promptOnManualApply";
 
 Hooks.once("init", () => {
   game.settings.register(MODULE_ID, SETTING_PROMPT, {
-    name: "Prompt on manual bleed",
-    hint: "When the bleed condition is applied by hand with no bleed configured, ask for an amount and type. Bleed applied via @Bleed or the API is unaffected.",
+    name: "BLD.Settings.PromptOnManual.Name",
+    hint: "BLD.Settings.PromptOnManual.Hint",
     scope: "world",
     config: true,
     type: Boolean,
@@ -29,7 +29,7 @@ Hooks.once("init", () => {
  * @returns {string}
  */
 function typeOptions() {
-  const opts = [`<option value="hp" selected>Hit Points</option>`];
+  const opts = [`<option value="hp" selected>${game.i18n.localize("BLD.Prompt.HitPoints")}</option>`];
   for (const [key, label] of Object.entries(pf1.config.abilities)) {
     opts.push(`<option value="${key}">${label}</option>`);
   }
@@ -45,30 +45,30 @@ async function promptBleed(actor) {
   const content = `
     <form class="pf1-bleed-dialog">
       <div class="form-group">
-        <label>Amount / Formula</label>
+        <label>${game.i18n.localize("BLD.Prompt.AmountLabel")}</label>
         <input type="text" name="formula" value="1d6" autofocus />
       </div>
       <div class="form-group">
-        <label>Type</label>
+        <label>${game.i18n.localize("BLD.Prompt.TypeLabel")}</label>
         <select name="type">${typeOptions()}</select>
       </div>
       <div class="form-group">
-        <label>Mode</label>
+        <label>${game.i18n.localize("BLD.Prompt.ModeLabel")}</label>
         <select name="mode">
-          <option value="damage" selected>Damage</option>
-          <option value="drain">Drain</option>
+          <option value="damage" selected>${game.i18n.localize("BLD.Kind.Damage")}</option>
+          <option value="drain">${game.i18n.localize("BLD.Kind.Drain")}</option>
         </select>
       </div>
-      <p class="notes">Choose <em>Marker Only</em> to leave the bleed condition inert (no automatic damage).</p>
+      <p class="notes">${game.i18n.localize("BLD.Prompt.MarkerNote")}</p>
     </form>`;
 
   const result = await foundry.applications.api.DialogV2.wait({
-    window: { title: `Apply Bleed — ${actor.name}` },
+    window: { title: game.i18n.format("BLD.Prompt.Title", { name: actor.name }) },
     content,
     buttons: [
       {
         action: "apply",
-        label: "Apply",
+        label: game.i18n.localize("BLD.Prompt.Apply"),
         icon: "fa-solid fa-droplet",
         default: true,
         callback: (event, button, dialog) => {
@@ -80,7 +80,7 @@ async function promptBleed(actor) {
           };
         },
       },
-      { action: "marker", label: "Marker Only", icon: "fa-regular fa-circle" },
+      { action: "marker", label: game.i18n.localize("BLD.Prompt.MarkerOnly"), icon: "fa-regular fa-circle" },
     ],
     rejectClose: false,
   });

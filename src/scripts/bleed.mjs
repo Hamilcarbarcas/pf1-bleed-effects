@@ -67,9 +67,9 @@ export function canonicalKind(kind) {
  */
 export function kindLabel(kind) {
   const parsed = parseKind(kind);
-  if (!parsed || parsed.track === "hp") return "HP";
+  if (!parsed || parsed.track === "hp") return game.i18n.localize("BLD.Kind.HP");
   const ablName = pf1.config.abilities[parsed.ability] ?? parsed.ability.toUpperCase();
-  return `${ablName} ${parsed.mode === "drain" ? "Drain" : "Damage"}`;
+  return `${ablName} ${game.i18n.localize(parsed.mode === "drain" ? "BLD.Kind.Drain" : "BLD.Kind.Damage")}`;
 }
 
 /* -------------------------------------------- *
@@ -166,16 +166,16 @@ async function _clearLocal(actor, { kind } = {}) {
 async function apply(ref, { formula, kind = "hp", sourceRollData } = {}) {
   const actor = resolveActor(ref);
   if (!actor) {
-    ui.notifications.error("Bleed: no valid target actor.");
+    ui.notifications.error(game.i18n.localize("BLD.Error.NoTarget"));
     return null;
   }
   if (!formula) {
-    ui.notifications.error("Bleed: no damage formula provided.");
+    ui.notifications.error(game.i18n.localize("BLD.Error.NoFormula"));
     return null;
   }
   const canon = canonicalKind(kind);
   if (!canon) {
-    ui.notifications.error(`Bleed: invalid type "${kind}".`);
+    ui.notifications.error(game.i18n.format("BLD.Error.InvalidType", { kind }));
     return null;
   }
 
@@ -290,8 +290,9 @@ async function tickActor(actor) {
  * @param {string[]} lines
  */
 async function postBleedCard(actor, lines) {
+  const suffers = game.i18n.format("BLD.Card.Suffers", { name: `<strong>${actor.name}</strong>` });
   const content = `<div class="pf1-bleed-card">
-    <p><i class="fa-solid fa-droplet"></i> <strong>${actor.name}</strong> suffers bleed:</p>
+    <p><i class="fa-solid fa-droplet"></i> ${suffers}</p>
     <ul>${lines.map((l) => `<li>${l}</li>`).join("")}</ul>
   </div>`;
   await ChatMessage.create({ content, speaker: ChatMessage.getSpeaker({ actor }) });

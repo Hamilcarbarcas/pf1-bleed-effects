@@ -19,9 +19,9 @@ function bleedListHTML(effects) {
   const items = effects.map((e) => `<li>${e.formula} ${e.label}</li>`).join("");
   const note =
     effects.length > 1
-      ? `<em class="pf1-bleed-tooltip-note">Highest of each type applies each round.</em>`
+      ? `<em class="pf1-bleed-tooltip-note">${game.i18n.localize("BLD.Display.HighestNote")}</em>`
       : "";
-  return `<strong>Bleed</strong><ul>${items}</ul>${note}`;
+  return `<strong>${game.i18n.localize("BLD.Display.Heading")}</strong><ul>${items}</ul>${note}`;
 }
 
 /**
