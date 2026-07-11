@@ -27,7 +27,7 @@ jobs:
              module.json > module.json.tmp && mv module.json.tmp module.json
 
       - name: Package module
-        run: zip -r module.zip module.json src/
+        run: zip -r module.zip module.json src/ lang/
 
       - name: Extract release notes from CHANGELOG
         run: |
