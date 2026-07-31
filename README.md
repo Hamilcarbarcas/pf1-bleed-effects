@@ -6,7 +6,8 @@ Adds automated, configurable damage-over-time to the Pathfinder 1e **bleed** and
 
 - Adds an enricher to apply specific types and amounts of bleed damage.
 - Prompts for an amount and type when the bleed condition is applied by hand.
-- Adds a **burning** condition (1d6 fire/round) with a turn-start Reflex save to put it out.
+- Adds a **burning** condition (1d6 fire/round) with a turn-start Reflex save to put it out, or no save at all.
+- Burning damage respects the target's fire immunity, resistance, and vulnerability.
 - API functions to apply bleed or burning via scripts/macros.
 - Tool-tip display of active bleed effects.
 - Multiple bleeds of the **same damage type don't stack** — only the highest damage is applied to each.
@@ -56,7 +57,7 @@ Just **remove the bleed condition** like any other — click it off on the token
 
 ## Burning
 
-Burning is a separate condition that deals **1d6 fire damage per round**. Unlike bleed, the amount is fixed — the knobs are the **Reflex save DC** (default **15**) to put the fire out, and a world setting to disable that save entirely.
+Burning is a separate condition that deals **1d6 fire damage per round**. Unlike bleed, the amount is fixed — the knobs are the **Reflex save DC** (default **15**) to put the fire out, and whether there's a save at all.
 
 ### Applying burning
 
@@ -66,8 +67,14 @@ With the `@Burning` text button, the same way as `@Bleed`:
 | --- | --- |
 | `@Burning` | Set on fire; Reflex DC 15 to put out |
 | `@Burning[dc=18]` | Set on fire; Reflex DC 18 to put out |
+| `@Burning[nosave]` | Set on fire with **no save** to put it out |
 | `@Burning{Immolate}` | Custom label |
 | `@Burning[dc=20]{Immolate}` | Both |
+
+Options after the brackets (separated by `;`):
+
+- **`dc`** — the Reflex DC to put the fire out. Defaults to 15.
+- **`nosave`** — this burning offers no save. `save=false` does the same thing; a `dc` given alongside it is ignored.
 
 **Target** (or select) the creature(s) and click the button. Catching fire deals its first 1d6 immediately. You can also just apply the **burning condition** by hand (token status icons, sheet, etc.) — that uses the default DC 15 and no initial burst.
 
@@ -88,7 +95,34 @@ Either way the result is applied by the GM's client, the same as bleed.
 
 ### Turning the save off
 
-If you'd rather burning just deal its damage with no save, turn off the **Reflex save vs. burning** setting (world scope). With it disabled, no save card is posted — a burning creature simply takes its 1d6 fire damage at the end of each of its turns until you remove the burning condition.
+Two ways, depending on how broadly you want it:
+
+- **Per burning** — apply it with `@Burning[nosave]`, or `{ save: false }` from the API. Only that fire is inescapable; everything else still gets its save.
+- **Everywhere** — turn off the **Reflex save vs. burning** setting (world scope). This is a master switch: while it's off, *no* burning prompts a save, even one applied without `nosave`.
+
+Either way the outcome is the same as a save that never got rolled: no save card is posted, and the creature simply takes its 1d6 fire damage at the end of each of its turns until you remove the burning condition.
+
+### Burning from a buff
+
+You can also drive burning from a **buff** — put `Burning` in the buff's Conditions list, and the damage automation picks it up like any other burning. This is a good fit when something else should govern how long the fire lasts (a spell's duration, a lingering effect), because the buff's own duration ends the burning.
+
+Burning supplied this way is always **saveless**, regardless of the DC or the save setting: it deals its 1d6 at the end of each of the creature's turns and ends when the buff does.
+
+That isn't a stylistic choice. A buff puts its condition on an Active Effect attached to the *item*, and PF1 can only remove condition effects that sit directly on the actor — so a save that "put the fire out" wouldn't actually remove anything, and the creature would be told it was safe while still burning. Rather than offer a save it can't honour, the module doesn't offer one. **To put out a buff-driven fire, switch off (or delete) the buff.**
+
+### Fire resistance and vulnerability
+
+Burning damage is run through the target's fire defences:
+
+- **Immune to fire** → it can't be set alight at all. The condition isn't applied and a chat card says so.
+- **Fire resistance** → subtracted from each 1d6. Resistances of the same type don't stack, so the **highest** applicable resistance is used, not the sum. Resistance that soaks the whole roll leaves the creature burning but unharmed — resisting flames isn't the same as putting them out.
+- **Vulnerable to fire** → the 1d6 is increased by 50% (rounded down), then resistance is subtracted from that.
+
+The chat card shows what happened — e.g. *"takes 4 fire damage"* followed by *"(vulnerable to fire; 5 resisted)"* — so a reduced number never looks like a miscalculation.
+
+This reads the **Energy Resistance**, **Damage Immunity**, and **Damage Vulnerability** fields on the actor's Combat tab. Note that PF1 doesn't roll resistance up from equipment automatically, so a ring of fire resistance only counts if it's reflected in the actor's own Energy Resistance entries. Free-text resistance entries aren't parsed — only the structured ones with a real damage type selected.
+
+To go back to flat, bleed-style application, turn off the **Burning respects fire resistance** setting (world scope). Fire immunity is honoured either way.
 
 ### Coexisting with Nevela's Automation Suite
 
@@ -96,14 +130,14 @@ Nevela's Automation Suite also ships a `burning` condition (as a visual marker, 
 
 ### Stopping burning
 
-Remove the **burning condition** like any other, or let a successful Reflex save do it. The stored save DC is cleared right away.
+Remove the **burning condition** like any other, or let a successful Reflex save do it. The stored save DC is cleared right away. If the burning came from a buff, switch the **buff** off instead — clearing the condition alone won't stick, since the buff just re-supplies it.
 
 ## Good to know
 
 - **A GM needs to be logged in** for bleed and burning to be dealt — the GM's client handles it behind the scenes to avoid issues with duplicate applications. Players can still apply either to a target, but the back-end processing is done via the GM client.
 - Bleed **ignores damage reduction and resistances** and pulls from temporary hit points first.
 - Ending bleed effects are still manual, there is no support yet for automated clearing of bleed effects via heal checks or hit point healing.
-- Burning respects **fire immunity** (an immune creature won't burn or take burning damage), but its 1d6 does **not** currently subtract fire resistance — it's applied like bleed's flat damage.
+- Burning respects **fire immunity, resistance, and vulnerability** (see above). Both bleed and burning pull from temporary hit points first.
 - Burning ticks only **in combat** (it needs turn structure for the saves); a creature set on fire outside combat takes only the initial 1d6 until combat begins.
 
 
@@ -135,12 +169,17 @@ Burning has its own namespace on the same module API (also the global `pf1Burnin
 await pf1BurningEffects.apply(token);
 await pf1BurningEffects.apply(actor, { dc: 20 });
 
+// No save — 1d6 fire at the end of each of its turns until the condition is removed
+await pf1BurningEffects.apply(token, { save: false });
+
 // Check whether something is on fire
 pf1BurningEffects.isBurning(token);
 
 // Put the fire out
 await pf1BurningEffects.clear(token);
 ```
+
+`save` defaults to `true`; `dc` is ignored when it's `false`. The **Reflex save vs. burning** world setting still overrides `save: true` when that setting is off.
 
 The same functions are available under `game.modules.get("pf1-bleed-effects").api.burning`.
 

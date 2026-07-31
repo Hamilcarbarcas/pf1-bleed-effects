@@ -31,10 +31,16 @@
   "BLD.Condition.Burning": "Burning",
 
   "BLD.Burning.Ignite": "{name} catches fire and takes {total} fire damage.",
+  "BLD.Burning.IgniteResisted": "{name} catches fire, but shrugs off the flames entirely.",
   "BLD.Burning.Extinguish": "{name} makes the save and puts out the flames.",
+  "BLD.Burning.Persists": "{name} makes the save, but the flames are being sustained and keep burning.",
   "BLD.Burning.Burn": "{name} fails to douse the flames and takes {total} fire damage.",
   "BLD.Burning.AutoDamage": "{name} takes {total} fire damage from the flames.",
   "BLD.Burning.AutoNoSave": "{name} takes {total} fire damage from the flames (no save attempted).",
+  "BLD.Burning.Resisted": "{name} keeps burning, but shrugs off the flames entirely.",
+  "BLD.Burning.Immune": "{name} is immune to fire and cannot be set alight.",
+  "BLD.Burning.Note.Resisted": "{resisted} resisted",
+  "BLD.Burning.Note.Vulnerable": "vulnerable to fire",
   "BLD.Burning.SaveFlavor": "{name} is on fire — Reflex DC {dc} to put it out.",
   "BLD.Burning.Card.OnFire": "{name} is on fire!",
   "BLD.Burning.Card.SaveButton": "Reflex Save (DC {dc}) to put out the flames",
@@ -42,9 +48,13 @@
   "BLD.Burning.NoControl": "Burning: you don't control {name}.",
 
   "BLD.Burning.Enricher.Tooltip": "Set on fire (1d6 fire/round, Reflex DC {dc} to put out)",
+  "BLD.Burning.Enricher.TooltipNoSave": "Set on fire (1d6 fire/round, no save to put out)",
   "BLD.Burning.Enricher.DefaultLabel": "Burning",
   "BLD.Burning.Enricher.NoTarget": "Burning: no target. Select or target a token first.",
 
   "BLD.Settings.SavePrompt.Name": "Reflex save vs. burning",
-  "BLD.Settings.SavePrompt.Hint": "When on, a burning creature may attempt a Reflex save at the start of its turn to put out the flames. When off, no save is prompted — a burning creature automatically takes 1d6 fire damage at the end of each of its turns until the burning condition is removed."
+  "BLD.Settings.SavePrompt.Hint": "When on, a burning creature may attempt a Reflex save at the start of its turn to put out the flames. When off, no save is prompted — a burning creature automatically takes 1d6 fire damage at the end of each of its turns until the burning condition is removed. This is a master switch: individual burnings can also be applied without a save while this is on.",
+
+  "BLD.Settings.Resistance.Name": "Burning respects fire resistance",
+  "BLD.Settings.Resistance.Hint": "When on, burning damage is reduced by the target's fire resistance (highest applicable, as resistances of the same type don't stack) and increased by 50% against creatures vulnerable to fire. When off, the 1d6 is applied flat, like bleed. Fire immunity is always respected either way."
 }

@@ -4,11 +4,13 @@
  * Syntax (follows PF1 enricher convention `@Verb[opts]{label}`):
  *   @Burning                     set on fire, default DC 15
  *   @Burning[dc=18]              set on fire, Reflex DC 18 to put out
+ *   @Burning[nosave]             set on fire with no save (`save=false` too)
  *   @Burning{Immolate}          custom label
  *   @Burning[dc=20]{Immolate}   both
  *
  * Burning always deals 1d6 fire per round, so — unlike @Bleed — there is no
- * formula argument; the only option is the save DC.
+ * formula argument; the options are the save DC and whether a save is offered
+ * at all.
  */
 
 import { BurningAPI, DEFAULT_DC } from "./burning.mjs";
@@ -32,6 +34,19 @@ function parseOptions(str) {
 }
 
 /**
+ * Read the "does this burning offer a save" option, accepting either the bare
+ * `nosave` flag or an explicit `save=false`.
+ *
+ * @param {Record<string,string>} opts
+ * @returns {boolean}
+ */
+function parseSave(opts) {
+  if ("nosave" in opts) return !["true", "1", "yes"].includes(opts.nosave.toLowerCase());
+  if ("save" in opts) return !["false", "0", "no"].includes(opts.save.toLowerCase());
+  return true;
+}
+
+/**
  * Build the enriched element for a match.
  *
  * @param {RegExpMatchArray} match
@@ -39,13 +54,17 @@ function parseOptions(str) {
  */
 function enrich(match) {
   const { options, label } = match.groups;
-  const dcRaw = parseOptions(options).dc;
-  const dc = Number.isFinite(Number(dcRaw)) ? Number(dcRaw) : DEFAULT_DC;
+  const opts = parseOptions(options);
+  const dc = Number.isFinite(Number(opts.dc)) ? Number(opts.dc) : DEFAULT_DC;
+  const save = parseSave(opts);
 
   const a = document.createElement("a");
   a.classList.add("pf1-burning-link");
   a.dataset.dc = String(dc);
-  a.dataset.tooltip = game.i18n.format("BLD.Burning.Enricher.Tooltip", { dc });
+  a.dataset.save = String(save);
+  a.dataset.tooltip = save
+    ? game.i18n.format("BLD.Burning.Enricher.Tooltip", { dc })
+    : game.i18n.localize("BLD.Burning.Enricher.TooltipNoSave");
   a.dataset.tooltipClass = "pf1";
 
   const i = document.createElement("i");
@@ -89,6 +108,7 @@ async function onClick(event) {
   event.stopPropagation();
 
   const dc = Number(a.dataset.dc) || DEFAULT_DC;
+  const save = a.dataset.save !== "false";
 
   const actors = getActors(a);
   if (!actors.length) {
@@ -97,7 +117,7 @@ async function onClick(event) {
   }
 
   for (const actor of actors) {
-    await BurningAPI.apply(actor, { dc });
+    await BurningAPI.apply(actor, { dc, save });
   }
 }
 

@@ -32,6 +32,17 @@
   color: #2980b9;
 }
 
+.pf1-burning-card.pf1-burning-resist i.fa-shield-halved {
+  color: #7f8c8d;
+}
+
+/* Mitigation aside: "(vulnerable to fire; 5 resisted)" */
+.pf1-burning-card .pf1-burning-note {
+  color: #6b6b6b;
+  font-size: 0.9em;
+  font-style: italic;
+}
+
 /* Built-in Reflex-save prompt button on the burning card */
 button.pf1-burning-save {
   display: block;

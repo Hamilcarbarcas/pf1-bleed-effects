@@ -5,17 +5,22 @@
  * on `updateCombat`, socket-routed application, condition-synced state) but is
  * simpler in one axis and richer in another:
  *
- *  - Damage is always `1d6` fire — there is no per-effect formula/stacking.
+ *  - Damage is always `1d6` fire — there is no per-effect formula/stacking. It
+ *    is run through the target's fire immunity, resistance, and vulnerability
+ *    (see `adjustForResistance`).
  *  - At the start of the burning creature's turn it may attempt a DC 15 Reflex
  *    save to put the fire out. A *success extinguishes and deals no damage*; a
  *    *failure deals 1d6 fire and burning persists*. If the turn ends with the
  *    save still unresolved (nobody rolled) and the creature is still on fire, it
  *    takes the 1d6 automatically — burning never stalls waiting for a click.
  *
- *    The save can be turned off entirely via the "Reflex save vs. burning"
- *    world setting. With it disabled, no save is prompted: a burning creature
- *    simply takes its 1d6 fire automatically at the end of each of its turns
- *    (via the same end-of-turn fallback below) until the condition is removed.
+ *    The save can be turned off two ways. The "Reflex save vs. burning" world
+ *    setting is a master switch that suppresses it everywhere; individual
+ *    burnings can also opt out at application time (`@Burning[nosave]`, or
+ *    `apply(ref, { save: false })`). Either way no save is prompted: the
+ *    creature simply takes its 1d6 fire automatically at the end of each of its
+ *    turns (via the same end-of-turn fallback below) until the condition is
+ *    removed.
  *
  * The Reflex save is obtained one of two ways, auto-detected at tick time:
  *
@@ -36,12 +41,14 @@
 import { MODULE_ID, SOCKET, resolveActor, isActiveGM } from "./dot-common.mjs";
 
 const CONDITION_ID = "burning";
-const FLAG_KEY = "burning"; // { dc:number }
+const FLAG_KEY = "burning"; // { dc:number, save:boolean }
 const NEVELA_ID = "nevelas-automation-suite";
 const ROLL_REQUESTS_ID = "pf1-roll-requests";
 const SETTING_SAVE = "burningSavePrompt";
+const SETTING_RESISTANCE = "burningResistance";
 
 const DAMAGE_FORMULA = "1d6";
+const DAMAGE_TYPE = "fire";
 export const DEFAULT_DC = 15;
 
 /**
@@ -117,8 +124,56 @@ function getDC(actor) {
 }
 
 /**
- * Whether the per-turn Reflex save is enabled. When off, burning creatures take
- * the automatic end-of-turn 1d6 with no save prompt.
+ * The item(s) supplying the burning condition, if it is inherited from an item
+ * rather than sitting on the actor directly.
+ *
+ * A PF1 buff that lists `burning` under its Conditions creates its Active
+ * Effect on the *item*, not the actor. This is the same test PF1's own sheet
+ * uses to mark a condition as "inherited" and lock its checkbox.
+ *
+ * @param {Actor} actor
+ * @returns {Item[]}
+ */
+function getConditionSourceItems(actor) {
+  return (actor.appliedEffects ?? [])
+    .filter((ae) => ae.parent instanceof Item && ae.statuses?.has(CONDITION_ID))
+    .map((ae) => ae.parent);
+}
+
+/**
+ * Whether burning on this actor is supplied by an item (typically a buff).
+ *
+ * @param {Actor} actor
+ * @returns {boolean}
+ */
+function isItemSourced(actor) {
+  return getConditionSourceItems(actor).length > 0;
+}
+
+/**
+ * Whether *this particular* burning offers a save.
+ *
+ * Normally this comes from the flag written at application time (absent — older
+ * or hand-applied burnings — means "yes"). Item-sourced burning is always
+ * save-less, whatever the flag says: PF1's `setConditions` can only find
+ * condition effects that live directly on the actor
+ * (`this.effects.find(...)`, flagged `// BUG:` in the system source), so
+ * extinguishing one supplied by a buff is a silent no-op. Offering a save we
+ * couldn't honour would report the fire as out while it kept burning, so the
+ * burning simply runs saveless until the buff itself ends.
+ *
+ * @param {Actor} actor
+ * @returns {boolean}
+ */
+function allowsSave(actor) {
+  if (isItemSourced(actor)) return false;
+  return actor.getFlag(MODULE_ID, FLAG_KEY)?.save !== false;
+}
+
+/**
+ * Whether the per-turn Reflex save is enabled world-wide. This is a master
+ * switch: when off, no burning prompts a save regardless of how it was applied.
+ * Burning creatures then take the automatic end-of-turn 1d6 instead.
  *
  * @returns {boolean}
  */
@@ -127,7 +182,16 @@ function savePromptEnabled() {
 }
 
 /**
- * Roll one instance of burning fire damage.
+ * Whether burning damage should be run through fire resistance/vulnerability.
+ *
+ * @returns {boolean}
+ */
+function resistanceEnabled() {
+  return game.settings.get(MODULE_ID, SETTING_RESISTANCE);
+}
+
+/**
+ * Roll one instance of burning fire damage, before any resistance.
  *
  * @param {Actor} actor
  * @returns {Promise<number>}
@@ -138,13 +202,95 @@ async function rollDamage(actor) {
 }
 
 /**
+ * Whether an actor carries a damage-type trait (immunity or vulnerability) for
+ * the given damage type.
+ *
+ * PF1 v11 stores these as `{ base, standard:Set, custom:Set, total }` — the old
+ * `.value` array is a deprecated getter that now returns a Set, so array
+ * methods on it silently do nothing.
+ *
+ * @param {Actor} actor
+ * @param {"di"|"dv"} traitKey
+ * @param {string} type - Damage type id, e.g. "fire".
+ * @returns {boolean}
+ */
+function hasDamageTrait(actor, traitKey, type) {
+  return !!actor.system?.traits?.[traitKey]?.total?.has?.(type);
+}
+
+/**
  * Whether the actor is immune to fire (so burning does nothing to it).
  *
  * @param {Actor} actor
  * @returns {boolean}
  */
 function isFireImmune(actor) {
-  return !!actor.system?.traits?.di?.value?.includes?.("fire");
+  return hasDamageTrait(actor, "di", DAMAGE_TYPE);
+}
+
+/**
+ * The actor's best fire resistance.
+ *
+ * `system.traits.eres` holds structured entries of the shape
+ * `{ amount, operator, types:[typeId, typeId] }`. Following PF1's own damage
+ * application, energy resistance is *inclusive*: an entry applies if fire is
+ * among its types at all, irrespective of the AND/OR operator. Resistances to
+ * the same energy type don't stack, so only the largest applies.
+ *
+ * Free-text entries in `eres.custom` are deliberately not parsed — matching
+ * hand-typed resistance text by name is too easy to get wrong silently.
+ *
+ * @param {Actor} actor
+ * @returns {number}
+ */
+function getFireResistance(actor) {
+  const entries = actor.system?.traits?.eres?.value;
+  if (!Array.isArray(entries)) return 0;
+
+  let best = 0;
+  for (const entry of entries) {
+    if (!entry?.types?.includes?.(DAMAGE_TYPE)) continue;
+    const amount = Number(entry.amount);
+    if (Number.isFinite(amount) && amount > best) best = amount;
+  }
+  return best;
+}
+
+/**
+ * Run a rolled burning total through the target's fire vulnerability and
+ * resistance, in that order — vulnerability is a modifier to the damage dealt,
+ * and resistance subtracts from whatever ultimately lands.
+ *
+ * Fire *immunity* is handled separately by the callers, which skip damage (and
+ * the burning condition) entirely rather than reducing it to zero.
+ *
+ * @param {Actor} actor
+ * @param {number} raw - Rolled damage, before adjustment.
+ * @returns {{total:number, raw:number, resisted:number, vulnerable:boolean}}
+ */
+function adjustForResistance(actor, raw) {
+  if (!resistanceEnabled()) return { total: raw, raw, resisted: 0, vulnerable: false };
+
+  const vulnerable = hasDamageTrait(actor, "dv", DAMAGE_TYPE);
+  const value = vulnerable ? Math.floor(raw * 1.5) : raw;
+
+  const resisted = Math.min(value, getFireResistance(actor));
+  return { total: value - resisted, raw, resisted, vulnerable };
+}
+
+/**
+ * Roll a round of burning damage and apply it, honouring resistance.
+ *
+ * Callers are responsible for the immunity check; this only handles the
+ * partial-mitigation cases.
+ *
+ * @param {Actor} actor
+ * @returns {Promise<{total:number, raw:number, resisted:number, vulnerable:boolean}>}
+ */
+async function rollAndApplyDamage(actor) {
+  const result = adjustForResistance(actor, await rollDamage(actor));
+  if (result.total > 0) await actor.applyDamage(result.total);
+  return result;
 }
 
 /* -------------------------------------------- *
@@ -152,22 +298,26 @@ function isFireImmune(actor) {
  * -------------------------------------------- */
 
 /**
- * Set an actor we own on fire: store the DC, show the condition, and deal the
- * initial 1d6 (catching fire deals damage immediately — no save).
+ * Set an actor we own on fire: store the DC and save flag, show the condition,
+ * and deal the initial 1d6 (catching fire deals damage immediately — no save).
+ *
+ * A fire-immune creature can't be lit at all: the condition isn't applied, so
+ * it doesn't sit there as a marker that the first turn-tick would then clear.
  *
  * @param {Actor} actor
- * @param {{dc?:number}} [options]
+ * @param {{dc?:number, save?:boolean}} [options]
  */
-async function _applyLocal(actor, { dc = DEFAULT_DC } = {}) {
-  await actor.setFlag(MODULE_ID, FLAG_KEY, { dc });
+async function _applyLocal(actor, { dc = DEFAULT_DC, save = true } = {}) {
+  if (isFireImmune(actor)) {
+    await postCard(actor, game.i18n.format("BLD.Burning.Immune", { name: `<strong>${actor.name}</strong>` }), "resist");
+    return;
+  }
+
+  await actor.setFlag(MODULE_ID, FLAG_KEY, { dc, save });
   if (!actor.statuses.has(CONDITION_ID)) await actor.setCondition(CONDITION_ID, true);
 
-  if (isFireImmune(actor)) return;
-  const total = await rollDamage(actor);
-  if (total > 0) {
-    await actor.applyDamage(total);
-    await postCard(actor, game.i18n.format("BLD.Burning.Ignite", { name: `<strong>${actor.name}</strong>`, total }), "ignite");
-  }
+  const result = await rollAndApplyDamage(actor);
+  await postResult(actor, result, "BLD.Burning.Ignite", "BLD.Burning.IgniteResisted", "ignite");
 }
 
 /**
@@ -191,20 +341,27 @@ async function _clearLocal(actor) {
  * request is routed to the active GM via socket.
  *
  * @param {Actor|Token|TokenDocument|string} ref
- * @param {{dc?:number}} [options]
+ * @param {object} [options]
+ * @param {number} [options.dc=15] - Reflex DC to put the fire out.
+ * @param {boolean} [options.save=true] - When false, this burning offers no
+ *   save: it deals its 1d6 automatically at the end of each of the creature's
+ *   turns, exactly as an unrolled save does.
  * @returns {Promise<void>}
  */
-async function apply(ref, { dc = DEFAULT_DC } = {}) {
+async function apply(ref, { dc = DEFAULT_DC, save = true } = {}) {
   const actor = resolveActor(ref);
   if (!actor) {
     ui.notifications.error(game.i18n.localize("BLD.Burning.Error.NoTarget"));
     return;
   }
-  const cleanDC = Number.isFinite(Number(dc)) ? Number(dc) : DEFAULT_DC;
+  const payload = {
+    dc: Number.isFinite(Number(dc)) ? Number(dc) : DEFAULT_DC,
+    save: save !== false,
+  };
 
-  if (actor.isOwner) return _applyLocal(actor, { dc: cleanDC });
+  if (actor.isOwner) return _applyLocal(actor, payload);
 
-  game.socket.emit(SOCKET, { action: "burn", actorUuid: actor.uuid, payload: { dc: cleanDC } });
+  game.socket.emit(SOCKET, { action: "burn", actorUuid: actor.uuid, payload });
 }
 
 /**
@@ -258,14 +415,23 @@ async function resolveSave(actor, passed) {
 
   if (passed) {
     await _clearLocal(actor);
+
+    // A save is only offered when nothing item-sourced is supplying the
+    // condition, but a buff could have been switched on since the prompt went
+    // out — in which case the fire is still burning and saying otherwise would
+    // be a lie. Report what actually happened.
+    if (actor.statuses.has(CONDITION_ID)) {
+      await postCard(actor, game.i18n.format("BLD.Burning.Persists", { name: `<strong>${actor.name}</strong>` }), "burn");
+      return;
+    }
+
     await postCard(actor, game.i18n.format("BLD.Burning.Extinguish", { name: `<strong>${actor.name}</strong>` }), "extinguish");
     return;
   }
 
   if (isFireImmune(actor)) return;
-  const total = await rollDamage(actor);
-  if (total > 0) await actor.applyDamage(total);
-  await postCard(actor, game.i18n.format("BLD.Burning.Burn", { name: `<strong>${actor.name}</strong>`, total }), "burn");
+  const result = await rollAndApplyDamage(actor);
+  await postResult(actor, result, "BLD.Burning.Burn", "BLD.Burning.Resisted", "burn");
 }
 
 /**
@@ -282,10 +448,9 @@ async function finalizePendingSaves(_combat) {
     if (!entry.resolved) {
       const actor = resolveActor(actorUuid);
       if (actor?.statuses.has(CONDITION_ID) && !isFireImmune(actor)) {
-        const total = await rollDamage(actor);
-        if (total > 0) await actor.applyDamage(total);
+        const result = await rollAndApplyDamage(actor);
         const key = entry.noSave ? "BLD.Burning.AutoDamage" : "BLD.Burning.AutoNoSave";
-        await postCard(actor, game.i18n.format(key, { name: `<strong>${actor.name}</strong>`, total }), "burn");
+        await postResult(actor, result, key, "BLD.Burning.Resisted", "burn");
       }
     }
     pendingSaves.delete(actorUuid);
@@ -312,9 +477,10 @@ async function tickBurning(actor, token) {
     return;
   }
 
-  // Saves turned off: don't prompt. Register a "no save" pending entry so the
-  // end-of-turn fallback deals the automatic 1d6 when this turn elapses.
-  if (!savePromptEnabled()) {
+  // Saves turned off — either world-wide, or for this specific burning. Don't
+  // prompt; register a "no save" pending entry so the end-of-turn fallback
+  // deals the automatic 1d6 when this turn elapses.
+  if (!savePromptEnabled() || !allowsSave(actor)) {
     pendingSaves.set(actor.uuid, { resolved: false, noSave: true });
     return;
   }
@@ -450,19 +616,59 @@ async function onSaveButtonClick(event) {
  *  Chat card
  * -------------------------------------------- */
 
+const CARD_ICONS = {
+  extinguish: "fa-fire-extinguisher",
+  resist: "fa-shield-halved",
+};
+
 /**
  * Post a one-line burning chat card.
  *
  * @param {Actor} actor
  * @param {string} text - Full localized sentence (already includes the actor name).
- * @param {"ignite"|"burn"|"extinguish"} kind
+ * @param {"ignite"|"burn"|"extinguish"|"resist"} kind
+ * @param {string} [note] - Optional localized mitigation aside.
  */
-async function postCard(actor, text, kind) {
-  const icon = kind === "extinguish" ? "fa-fire-extinguisher" : "fa-fire";
+async function postCard(actor, text, kind, note) {
+  const icon = CARD_ICONS[kind] ?? "fa-fire";
+  const aside = note ? ` <span class="pf1-burning-note">${note}</span>` : "";
   const content = `<div class="pf1-burning-card pf1-burning-${kind}">
-    <p><i class="fa-solid ${icon}"></i> ${text}</p>
+    <p><i class="fa-solid ${icon}"></i> ${text}${aside}</p>
   </div>`;
   await ChatMessage.create({ content, speaker: ChatMessage.getSpeaker({ actor }) });
+}
+
+/**
+ * Summarize how resistance/vulnerability changed a roll, so a reduced total
+ * doesn't read as a bug. Empty when the damage landed unmodified.
+ *
+ * @param {{raw:number, resisted:number, vulnerable:boolean}} result
+ * @returns {string}
+ */
+function damageNote({ raw, resisted, vulnerable }) {
+  const parts = [];
+  if (vulnerable) parts.push(game.i18n.localize("BLD.Burning.Note.Vulnerable"));
+  if (resisted > 0) parts.push(game.i18n.format("BLD.Burning.Note.Resisted", { resisted, raw }));
+  return parts.length ? `(${parts.join("; ")})` : "";
+}
+
+/**
+ * Post the outcome of a damage tick, picking the wording to match whether any
+ * damage actually got through.
+ *
+ * @param {Actor} actor
+ * @param {{total:number, raw:number, resisted:number, vulnerable:boolean}} result
+ * @param {string} dealtKey - i18n key for "took {total} damage", given `name` and `total`.
+ * @param {string} resistedKey - i18n key for "resisted it entirely", given `name`.
+ * @param {"ignite"|"burn"} kind
+ */
+async function postResult(actor, result, dealtKey, resistedKey, kind) {
+  const name = `<strong>${actor.name}</strong>`;
+  const dealt = result.total > 0;
+  const text = dealt
+    ? game.i18n.format(dealtKey, { name, total: result.total })
+    : game.i18n.format(resistedKey, { name });
+  await postCard(actor, text, dealt ? kind : "resist", damageNote(result));
 }
 
 /* -------------------------------------------- *
@@ -525,6 +731,15 @@ Hooks.once("init", () => {
   game.settings.register(MODULE_ID, SETTING_SAVE, {
     name: "BLD.Settings.SavePrompt.Name",
     hint: "BLD.Settings.SavePrompt.Hint",
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: true,
+  });
+
+  game.settings.register(MODULE_ID, SETTING_RESISTANCE, {
+    name: "BLD.Settings.Resistance.Name",
+    hint: "BLD.Settings.Resistance.Hint",
     scope: "world",
     config: true,
     type: Boolean,
