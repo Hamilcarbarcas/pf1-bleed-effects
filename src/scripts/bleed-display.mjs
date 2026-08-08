@@ -12,15 +12,32 @@ import { BleedAPI } from "./bleed.mjs";
  * Inner HTML listing each bleed effect (shared by the data-tooltip string and
  * the little-helper HUD DOM injection).
  *
- * @param {Array<{label:string,formula:string}>} effects
+ * A deep bleed carries its outstanding dedicated healing on the same line — that number is the
+ * only thing that will close it, so it belongs everywhere the bleed itself is shown.
+ *
+ * @param {Array<{label:string,formula:string,deep:{required:number,received:number,remaining:number}|null}>} effects
  * @returns {string}
  */
 function bleedListHTML(effects) {
-  const items = effects.map((e) => `<li>${e.formula} ${e.label}</li>`).join("");
-  const note =
-    effects.length > 1
-      ? `<em class="pf1-bleed-tooltip-note">${game.i18n.localize("BLD.Display.HighestNote")}</em>`
-      : "";
+  const items = effects
+    .map((e) => {
+      const deep = e.deep
+        ? ` <span class="pf1-bleed-deep">${game.i18n.format("BLD.Display.DeepProgress", {
+            received: e.deep.received,
+            required: e.deep.required,
+          })}</span>`
+        : "";
+      return `<li>${e.formula} ${e.label}${deep}</li>`;
+    })
+    .join("");
+
+  const notes = [];
+  if (effects.length > 1) notes.push(game.i18n.localize("BLD.Display.HighestNote"));
+  if (effects.some((e) => e.deep)) notes.push(game.i18n.localize("BLD.Display.DeepNote"));
+  const note = notes.length
+    ? `<em class="pf1-bleed-tooltip-note">${notes.join("<br>")}</em>`
+    : "";
+
   return `<strong>${game.i18n.localize("BLD.Display.Heading")}</strong><ul>${items}</ul>${note}`;
 }
 

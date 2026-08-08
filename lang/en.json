@@ -20,13 +20,24 @@
   "BLD.Prompt.Title": "Apply Bleed — {name}",
   "BLD.Prompt.Apply": "Apply",
   "BLD.Prompt.MarkerOnly": "Marker Only",
+  "BLD.Prompt.DeepLabel": "Deep Bleed",
+  "BLD.Prompt.DeepNote": "0 = ordinary bleed. Higher closes only through that much dedicated healing.",
 
   "BLD.Enricher.Tooltip": "Apply bleed ({kind}): {formula}",
+  "BLD.Enricher.TooltipDeep": "Apply deep bleed ({kind}): {formula} — {deep} HP of dedicated healing to close",
   "BLD.Enricher.DefaultLabel": "Bleed: {formula}",
   "BLD.Enricher.NoTarget": "Bleed: no target. Select or target a token first.",
 
   "BLD.Display.Heading": "Bleed",
   "BLD.Display.HighestNote": "Highest of each type applies each round.",
+  "BLD.Display.DeepProgress": "— deep, {received}/{required} healing",
+  "BLD.Display.DeepNote": "A deep bleed closes only through dedicated healing.",
+
+  "BLD.Deep.ParticipantName": "Deep Bleed ({formula} {kind})",
+  "BLD.Deep.CannotClear": "{name}'s bleed is deep and cannot be removed by hand — {remaining} HP of dedicated healing still needed.",
+
+  "BLD.Settings.DeepBleed.Name": "Deep Bleed (homebrew)",
+  "BLD.Settings.DeepBleed.Hint": "HOMEBREW. Allows a bleed to be inflicted as a deep wound: it cannot be stopped by removing the bleed condition, and closes only once a set number of hit points of dedicated healing have been spent on it — healing that would otherwise have gone to the character's hit points. Requires pf1-critical-effects, which supplies the dedicated-healing allocation dialog. Turning this off stops new deep bleeds; any already inflicted stay payable so nobody is left with a wound that cannot be closed.",
 
   "BLD.Condition.Burning": "Burning",
 

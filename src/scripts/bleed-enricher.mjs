@@ -5,9 +5,10 @@
  *   @Bleed[1d6]                       hit point bleed
  *   @Bleed[@cl;type=con]              Constitution damage bleed (mode defaults to damage)
  *   @Bleed[2;type=str;mode=drain]     Strength drain bleed
+ *   @Bleed[2d6;deep=20]               deep bleed: 20 HP of dedicated healing closes it
  *   @Bleed[1d6]{Open Wound}           custom label
  *
- * The primary argument is the damage formula; `type`/`mode` are options.
+ * The primary argument is the damage formula; `type`/`mode`/`deep` are options.
  */
 
 import { BleedAPI } from "./bleed.mjs";
@@ -52,15 +53,22 @@ function kindFromOptions(opts) {
  */
 function enrich(match) {
   const { formula, options, label } = match.groups;
-  const kind = kindFromOptions(parseOptions(options));
+  const opts = parseOptions(options);
+  const kind = kindFromOptions(opts);
   const f = formula.trim();
+  const deep = Math.max(0, parseInt(opts.deep) || 0);
 
   const a = document.createElement("a");
   a.classList.add("pf1-bleed-link");
   a.dataset.formula = f;
   a.dataset.kind = kind;
-  a.dataset.tooltip = game.i18n.format("BLD.Enricher.Tooltip", { kind, formula: f });
+  // The tooltip states the threshold whatever the setting says: the link's author meant it, and
+  // a GM hovering it should see what was written even on a world with the rule off.
+  a.dataset.tooltip = deep
+    ? game.i18n.format("BLD.Enricher.TooltipDeep", { kind, formula: f, deep })
+    : game.i18n.format("BLD.Enricher.Tooltip", { kind, formula: f });
   a.dataset.tooltipClass = "pf1";
+  if (deep) a.dataset.deep = String(deep);
 
   const i = document.createElement("i");
   i.classList.add("fa-solid", "fa-droplet");
@@ -120,6 +128,7 @@ async function onClick(event) {
   event.stopPropagation();
 
   const { formula, kind } = a.dataset;
+  const deepRequired = Math.max(0, parseInt(a.dataset.deep) || 0);
   const sourceRollData = getSourceRollData(a);
 
   const actors = getActors(a);
@@ -129,7 +138,7 @@ async function onClick(event) {
   }
 
   for (const actor of actors) {
-    await BleedAPI.apply(actor, { formula, kind, sourceRollData });
+    await BleedAPI.apply(actor, { formula, kind, sourceRollData, deepRequired });
   }
 }
 

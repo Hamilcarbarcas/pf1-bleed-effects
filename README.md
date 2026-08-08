@@ -24,12 +24,14 @@ Adds automated, configurable damage-over-time to the Pathfinder 1e **bleed** and
 | `@Bleed[5]` | 5 hit point bleed |
 | `@Bleed[@cl;type=con]` | Constitution **damage** bleed equal to caster level |
 | `@Bleed[2;type=str;mode=drain]` | 2 Strength **drain** bleed |
+| `@Bleed[2d6;deep=20]` | 2d6 **deep** bleed — 20 HP of dedicated healing closes it |
 | `@Bleed[1d4]{Open Wound}` | 1d4 hit point bleed, shown with a custom label |
 
 Options after the formula (separated by `;`):
 
 - **`type`** — `hp` (the default), or an ability: `str`, `dex`, `con`, `int`, `wis`, `cha`.
 - **`mode`** — `damage` (the default) or `drain`. Only matters for ability bleed.
+- **`deep`** — hit points of dedicated healing needed to close the wound. See [Deep Bleed](#deep-bleed-homebrew); ignored unless that rule is switched on.
 
 To apply it, **target** the creature(s) you want to bleed (or select their token) and click the button. Actor variables (such as `@abilities.str.mod`) are supported, using the source actor's values.
 
@@ -54,6 +56,30 @@ When a creature has bleed on it, hover its **bleed condition** to see a list of 
 ## Stopping bleed
 
 Just **remove the bleed condition** like any other — click it off on the token's status icons, the character sheet, or Little Helper's display. The stored bleed amounts are cleared right away, so if you apply bleed again later it starts fresh instead of piling onto the old wounds.
+
+The one exception is a deep bleed, below.
+
+## Deep Bleed (homebrew)
+
+**Off by default. Requires [pf1-critical-effects](https://github.com/Hamilcarbarcas/pf1-critical-effects)** — when that module isn't active, the setting doesn't appear and none of this exists.
+
+A wound too deep to close on its own. Removing the bleed condition **does not stop it**; it closes only once a set number of hit points of **dedicated healing** have been spent on it — healing that would otherwise have gone to the character's own hit points.
+
+Switch it on under the module's **Deep Bleed (homebrew)** setting, then give any bleed a threshold:
+
+- `@Bleed[2d6;deep=20]` in a description or journal
+- the **Healing to Close** field in the manual-application dialog
+- `deepRequired` on the API
+
+Once a creature has a deep bleed, any healing that lands on it opens pf1-critical-effects' **healing allocation dialog**, where you split the incoming hit points between the character's own HP and each open wound. Pour in enough and the wound closes and the bleed stops. The healing you spend that way does *not* heal hit points — that's the cost.
+
+Some things worth knowing:
+
+- **There's no Heal check.** Unlike the injury buffs dedicated healing was built for, a deep bleed is ready to absorb healing the moment it's inflicted. Nothing needs to be treated first.
+- **Each deep bleed is its own wound.** Two of them means two thresholds, paid separately, listed as two rows in the allocation dialog. Note that the tick engine still applies only the highest roll of each type per round — so two deep hit point bleeds cost double to close while dealing the damage of one.
+- **Clicking the condition off doesn't take.** The condition comes straight back and you get a notice saying how much healing is still owed. A GM who needs one gone regardless can force it: `pf1BleedEffects.clear(token, { force: true })`.
+- **Ordinary bleeds on the same creature clear normally.** Removing the condition drops those and keeps the deep ones.
+- **Turning the setting back off** stops new deep bleeds from being created but leaves existing ones payable, so nobody ends up with a wound that can't be closed.
 
 ## Burning
 
@@ -156,9 +182,17 @@ pf1BleedEffects.list(token);
 // Remove one type, or all bleed
 await pf1BleedEffects.clear(token, { kind: "hp" });
 await pf1BleedEffects.clear(token);
+
+// Deep Bleed: 20 HP of dedicated healing to close it
+await pf1BleedEffects.apply(token, { formula: "2d6", deepRequired: 20 });
+
+// Remove deep bleeds too, which every other clear leaves alone
+await pf1BleedEffects.clear(token, { force: true });
 ```
 
 `kind` is `"hp"` or `"<ability>.<damage|drain>"` (for example `"con.damage"` or `"str.drain"`).
+
+`deepRequired` is ignored unless the **Deep Bleed** setting is on and pf1-critical-effects is active. `list()` and `describe()` report an effect's progress on its `deep` property (`{ required, received, remaining }`, or `null`/absent for an ordinary bleed).
 
 ### Burning API
 
@@ -187,3 +221,8 @@ The same functions are available under `game.modules.get("pf1-bleed-effects").ap
 
 - Pathfinder 1e system, version 11 or newer
 - Foundry VTT v13
+
+Optional:
+
+- **[pf1-critical-effects](https://github.com/Hamilcarbarcas/pf1-critical-effects)** — supplies the dedicated-healing allocation dialog the **Deep Bleed** homebrew rule is built on. Without it that setting is hidden and deep bleed isn't implemented; everything else is unaffected. (That module recommends this one in turn: much of its critical and fumble content inflicts bleed.)
+- **Koboldworks – Little Helper** — bleed details are added to its buff-display tooltips.

@@ -22,6 +22,13 @@
           "minimum": "11"
         }
       }
+    ],
+    "recommends": [
+      {
+        "id": "pf1-critical-effects",
+        "type": "module",
+        "reason": "Supplies the dedicated-healing allocation dialog that the optional Deep Bleed homebrew rule is built on. Without it the setting is hidden and deep bleed is not implemented; ordinary bleed and burning are unaffected."
+      }
     ]
   },
   "esmodules": [
@@ -29,6 +36,7 @@
     "src/scripts/bleed-enricher.mjs",
     "src/scripts/bleed-display.mjs",
     "src/scripts/bleed-prompt.mjs",
+    "src/scripts/deep-bleed.mjs",
     "src/scripts/burning.mjs",
     "src/scripts/burning-enricher.mjs"
   ],

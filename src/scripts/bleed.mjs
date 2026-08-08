@@ -9,9 +9,14 @@
  *
  * The PF1 `bleed` condition is kept in sync purely as the visual marker; this
  * flag array is the source of truth for how much damage it deals.
+ *
+ * An effect may additionally be *deep* (`entry.deep`), the optional homebrew rule wired up in
+ * deep-bleed.mjs: it cannot be stopped by removing the condition, only by pouring a threshold of
+ * dedicated healing into it. Nothing in the tick engine treats a deep effect differently — it
+ * rolls and lands like any other. The difference is entirely in how it *ends*.
  */
 
-import { MODULE_ID, SOCKET, resolveActor, isActiveGM } from "./dot-common.mjs";
+import { MODULE_ID, SOCKET, resolveActor, isActiveGM, deepBleedEnabled } from "./dot-common.mjs";
 
 export { MODULE_ID };
 
@@ -80,10 +85,40 @@ export function kindLabel(kind) {
  * Get a deep clone of the actor's bleed effect array (safe to mutate).
  *
  * @param {Actor} actor
- * @returns {Array<{id:string,formula:string,kind:string}>}
+ * @returns {Array<{id:string,formula:string,kind:string,deep?:{required:number,received:number}}>}
  */
-function getEffects(actor) {
+export function getEffects(actor) {
   return foundry.utils.deepClone(actor.getFlag(MODULE_ID, FLAG_KEY) ?? []);
+}
+
+/**
+ * Write the effect array back, clearing the flag and the condition when nothing is left.
+ * Every mutation path funnels through here so the condition marker can't drift.
+ *
+ * @param {Actor} actor
+ * @param {Array} effects
+ */
+export async function writeEffects(actor, effects) {
+  if (effects.length) await actor.setFlag(MODULE_ID, FLAG_KEY, effects);
+  else await actor.unsetFlag(MODULE_ID, FLAG_KEY);
+
+  const hasCondition = actor.statuses.has(CONDITION_ID);
+  if (effects.length && !hasCondition) await actor.setCondition(CONDITION_ID, true);
+  else if (!effects.length && hasCondition) await actor.setCondition(CONDITION_ID, false);
+  return effects;
+}
+
+/**
+ * Normalized deep-bleed state for an effect, or null when it isn't deep.
+ *
+ * @param {{deep?:{required:number,received:number}}} effect
+ * @returns {{required:number,received:number,remaining:number}|null}
+ */
+export function deepStateOf(effect) {
+  const required = Number(effect?.deep?.required) || 0;
+  if (required <= 0) return null;
+  const received = Math.min(Number(effect?.deep?.received) || 0, required);
+  return { required, received, remaining: required - received };
 }
 
 /**
@@ -112,37 +147,43 @@ function resolveFormula(formula, rollData) {
  * Add a bleed effect to an actor we own and ensure the condition is shown.
  *
  * @param {Actor} actor
- * @param {{formula:string,kind:string}} effect
+ * @param {{formula:string,kind:string,deepRequired?:number}} effect
  */
-async function _applyLocal(actor, { formula, kind }) {
+async function _applyLocal(actor, { formula, kind, deepRequired = 0 }) {
   const effects = getEffects(actor);
-  effects.push({ id: foundry.utils.randomID(), formula: String(formula), kind });
-  await actor.setFlag(MODULE_ID, FLAG_KEY, effects);
-  if (!actor.statuses.has(CONDITION_ID)) await actor.setCondition(CONDITION_ID, true);
-  return effects;
+  const entry = { id: foundry.utils.randomID(), formula: String(formula), kind };
+
+  // Deep only when the homebrew rule is live: a threshold with no allocation dialog behind it
+  // would be an unclearable bleed.
+  const required = Math.max(0, Math.floor(Number(deepRequired) || 0));
+  if (required > 0 && deepBleedEnabled()) entry.deep = { required, received: 0 };
+
+  effects.push(entry);
+  return writeEffects(actor, effects);
 }
 
 /**
  * Remove some or all bleed effects from an actor we own; clears the condition
  * once nothing is left.
  *
+ * Deep bleeds survive this unless `force` is set — that is the whole point of them. A GM who
+ * needs one gone anyway calls `clear(actor, { force: true })`.
+ *
  * @param {Actor} actor
- * @param {{kind?:string}} [options]
+ * @param {{kind?:string,force?:boolean}} [options]
  */
-async function _clearLocal(actor, { kind } = {}) {
-  let effects = getEffects(actor);
-  if (kind) {
-    const canon = canonicalKind(kind);
-    effects = effects.filter((e) => e.kind !== canon);
-  } else {
-    effects = [];
-  }
+async function _clearLocal(actor, { kind, force = false } = {}) {
+  const canon = kind ? canonicalKind(kind) : null;
+  // A kind that was given but doesn't parse matches nothing, rather than falling through to
+  // "clear everything" — the same way it behaved before deep bleeds existed.
+  if (kind && !canon) return getEffects(actor);
 
-  if (effects.length) await actor.setFlag(MODULE_ID, FLAG_KEY, effects);
-  else await actor.unsetFlag(MODULE_ID, FLAG_KEY);
+  const effects = getEffects(actor).filter((e) => {
+    if (canon && e.kind !== canon) return true; // out of scope for this clear
+    return !force && !!deepStateOf(e);          // in scope: kept only if deep and not forced
+  });
 
-  if (!effects.length && actor.statuses.has(CONDITION_ID)) await actor.setCondition(CONDITION_ID, false);
-  return effects;
+  return writeEffects(actor, effects);
 }
 
 /* -------------------------------------------- *
@@ -161,9 +202,12 @@ async function _clearLocal(actor, { kind } = {}) {
  * @param {string} [options.kind="hp"] - "hp" or "<abl>.<damage|drain>".
  * @param {object} [options.sourceRollData] - Roll data used to resolve
  *   `@`-references at application time (the inflicting actor's data).
+ * @param {number} [options.deepRequired=0] - Homebrew Deep Bleed: hit points of dedicated
+ *   healing needed to close the wound. The bleed then cannot be removed by clearing the
+ *   condition. Ignored unless the Deep Bleed setting is on and pf1-critical-effects is active.
  * @returns {Promise<Array|null>}
  */
-async function apply(ref, { formula, kind = "hp", sourceRollData } = {}) {
+async function apply(ref, { formula, kind = "hp", sourceRollData, deepRequired = 0 } = {}) {
   const actor = resolveActor(ref);
   if (!actor) {
     ui.notifications.error(game.i18n.localize("BLD.Error.NoTarget"));
@@ -182,12 +226,12 @@ async function apply(ref, { formula, kind = "hp", sourceRollData } = {}) {
   // Lock @-references now (dice survive for per-round rolling).
   const resolved = resolveFormula(formula, sourceRollData ?? actor.getRollData());
 
-  if (actor.isOwner) return _applyLocal(actor, { formula: resolved, kind: canon });
+  if (actor.isOwner) return _applyLocal(actor, { formula: resolved, kind: canon, deepRequired });
 
   game.socket.emit(SOCKET, {
     action: "apply",
     actorUuid: actor.uuid,
-    payload: { formula: resolved, kind: canon },
+    payload: { formula: resolved, kind: canon, deepRequired },
   });
   return null;
 }
@@ -196,16 +240,17 @@ async function apply(ref, { formula, kind = "hp", sourceRollData } = {}) {
  * Remove bleed from a target (a single kind, or all of it).
  *
  * @param {Actor|Token|TokenDocument|string} ref
- * @param {{kind?:string}} [options]
+ * @param {{kind?:string,force?:boolean}} [options] - `force` also removes deep bleeds, which
+ *   otherwise survive every clear until their dedicated healing is paid.
  * @returns {Promise<Array|null>}
  */
-async function clear(ref, { kind } = {}) {
+async function clear(ref, { kind, force = false } = {}) {
   const actor = resolveActor(ref);
   if (!actor) return null;
 
-  if (actor.isOwner) return _clearLocal(actor, { kind });
+  if (actor.isOwner) return _clearLocal(actor, { kind, force });
 
-  game.socket.emit(SOCKET, { action: "clear", actorUuid: actor.uuid, payload: { kind } });
+  game.socket.emit(SOCKET, { action: "clear", actorUuid: actor.uuid, payload: { kind, force } });
   return null;
 }
 
@@ -224,12 +269,17 @@ function list(ref) {
  * Display-ready description of a target's bleed effects.
  *
  * @param {Actor|Token|TokenDocument|string} ref
- * @returns {Array<{kind:string,label:string,formula:string}>}
+ * @returns {Array<{kind:string,label:string,formula:string,deep:{required:number,received:number,remaining:number}|null}>}
  */
 function describe(ref) {
   const actor = resolveActor(ref);
   if (!actor) return [];
-  return getEffects(actor).map((e) => ({ kind: e.kind, label: kindLabel(e.kind), formula: e.formula }));
+  return getEffects(actor).map((e) => ({
+    kind: e.kind,
+    label: kindLabel(e.kind),
+    formula: e.formula,
+    deep: deepStateOf(e),
+  }));
 }
 
 /* -------------------------------------------- *
@@ -242,10 +292,11 @@ function describe(ref) {
  * @param {Actor} actor
  */
 async function tickActor(actor) {
-  // If the condition was removed by hand, treat that as "bleeding stopped".
+  // If the condition was removed by hand, treat that as "bleeding stopped" — except for deep
+  // bleeds, which _clearLocal keeps and writeEffects then re-marks. Those go on ticking.
   if (!actor.statuses.has(CONDITION_ID)) {
-    if (getEffects(actor).length) await _clearLocal(actor);
-    return;
+    if (!getEffects(actor).length) return;
+    if (!(await _clearLocal(actor)).length) return;
   }
 
   const effects = getEffects(actor);
@@ -342,7 +393,7 @@ function onSocket(data) {
  *  Registration
  * -------------------------------------------- */
 
-export const BleedAPI = { apply, clear, list, describe, tickActor, parseKind, canonicalKind };
+export const BleedAPI = { apply, clear, list, describe, tickActor, parseKind, canonicalKind, kindLabel };
 
 Hooks.once("init", () => {
   // Merge (don't overwrite): the burning engine also contributes to `module.api`.
@@ -362,9 +413,20 @@ Hooks.on("updateCombat", onUpdateCombat);
  * When the bleed condition is removed by any means (token HUD, sheet, another
  * module), drop the stored effects so they don't linger and accumulate on the
  * next application. Fires only on the client that toggled it (an owner).
+ *
+ * Deep bleeds are the exception: _clearLocal keeps them and re-marks the condition, so clicking
+ * the icon off simply doesn't take. Say so, or it reads as a bug rather than the rule.
  */
-Hooks.on("pf1ToggleActorCondition", (actor, conditionId, state) => {
+Hooks.on("pf1ToggleActorCondition", async (actor, conditionId, state) => {
   if (state || conditionId !== CONDITION_ID) return; // only when bleed turns OFF
   if (!actor?.isOwner) return;
-  if (actor.getFlag(MODULE_ID, FLAG_KEY)?.length) actor.unsetFlag(MODULE_ID, FLAG_KEY);
+  if (!actor.getFlag(MODULE_ID, FLAG_KEY)?.length) return;
+
+  const survivors = await _clearLocal(actor);
+  if (!survivors.length) return;
+
+  const remaining = survivors.reduce((sum, e) => sum + (deepStateOf(e)?.remaining ?? 0), 0);
+  ui.notifications.warn(
+    game.i18n.format("BLD.Deep.CannotClear", { name: actor.name, remaining })
+  );
 });

@@ -10,6 +10,17 @@
 ## [Unreleased]
 
 ### Added
+- **Deep Bleed** (homebrew, off by default, requires **pf1-critical-effects**). A bleed can be inflicted as a deep wound: removing the bleed condition does not stop it, and it closes only once a set number of hit points of *dedicated healing* have been spent on it — healing that would otherwise have gone to the character's hit points. Set the threshold with `@Bleed[2d6;deep=20]`, the **Healing to Close** field in the manual-application dialog, or `deepRequired` on the API.
+  - Implemented as a **provider** registered with pf1-critical-effects' dedicated-healing system, so a bleed (which lives in an actor flag, not an item) sits in the same allocation dialog as a broken arm. Neither module knows anything about the other's storage.
+  - **No Heal check.** Unlike the injury buffs dedicated healing was built for, a deep bleed absorbs healing from the moment it is inflicted, so it needs no treatment step and no entry point to trigger one.
+  - **Each deep bleed is its own wound** — separate threshold, separate running total, separate row in the allocation dialog. The tick engine still applies only the highest roll of each kind per round, so two deep hit point bleeds cost double to close while dealing the damage of one.
+  - Clicking the condition off no longer takes: it is re-marked and a notice reports the healing still owed. `clear(ref, { force: true })` is the GM override. Ordinary bleeds on the same creature still clear normally.
+  - The outstanding amount is shown on **every** bleed tooltip surface — the sheet's Buffs tab, the token HUD, and Little Helper's active-buff display — since that number is the only thing that will close the wound.
+  - Turning the setting off stops new deep bleeds but leaves existing ones payable, rather than stranding a wound nobody can close.
+- `kindLabel` added to the module API, and `describe()` now reports each effect's `deep` progress (`{ required, received, remaining }`).
+
+### Fixed
+- **Deep Bleed setting never appeared**, even with pf1-critical-effects installed and active. Its visibility was gated on that module's API surface, which is published from *its* `init` hook — and init listeners fire in module load order, which puts `pf1-bleed-effects` first alphabetically. The probe therefore always reported absent. Visibility now tests module activeness, which is known from world data before any module script runs; the API probe is kept for the `ready`-time provider registration, where load order no longer matters. A module that is active but exposes no dedicated-healing API (a version mismatch) now warns the GM instead of failing silently.
 - **Burning condition** — recurring 1d6 fire damage with a turn-start Reflex save (default DC 15) to put it out. A successful save extinguishes with no damage; a failure deals the 1d6 and burning persists; a turn that ends with the save unrolled applies the 1d6 automatically.
 - Save prompt auto-detects **PF1 Roll Requests** (targeted request card) and otherwise posts a self-contained Reflex-save button card.
 - **Reflex save vs. burning** setting to disable the save entirely — when off, burning creatures automatically take 1d6 fire at the end of each of their turns with no save prompt.
