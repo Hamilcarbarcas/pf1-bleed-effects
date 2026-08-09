@@ -38,14 +38,76 @@ export function isActiveGM() {
 }
 
 /* -------------------------------------------- *
+ *  Condition sourcing
+ *
+ *  A condition can reach an actor two ways, and the difference matters to every DoT feature here.
+ *  Applied directly, it is an Active Effect on the *actor*, which PF1 can create and delete.
+ *  Supplied by a buff (the condition ids in the buff's `system.conditions`), it is an AE on the
+ *  *item*, created when the buff switches on and deleted when it switches off — PF1's
+ *  `setConditions` cannot touch that one (it searches `actor.effects` only, flagged `// BUG:` in
+ *  the system source), so the buff alone governs its lifetime.
+ * -------------------------------------------- */
+
+/**
+ * The item-borne Active Effects currently supplying a condition to an actor.
+ *
+ * `appliedEffects` excludes disabled and suppressed effects, so a switched-off buff doesn't
+ * appear — which is exactly the "is this condition live right now" question every caller is
+ * asking. This is the same test PF1's own item sheet uses to mark a condition "inherited".
+ *
+ * @param {Actor} actor
+ * @param {string} conditionId
+ * @returns {ActiveEffect[]}
+ */
+export function getConditionSourceEffects(actor, conditionId) {
+  return (actor?.appliedEffects ?? []).filter(
+    (ae) => ae.parent instanceof Item && ae.statuses?.has(conditionId)
+  );
+}
+
+/**
+ * The item(s) supplying a condition to an actor — typically buffs listing it in their Conditions.
+ *
+ * @param {Actor} actor
+ * @param {string} conditionId
+ * @returns {Item[]}
+ */
+export function getConditionSourceItems(actor, conditionId) {
+  return getConditionSourceEffects(actor, conditionId).map((ae) => ae.parent);
+}
+
+/**
+ * The condition's Active Effect *on the actor itself*, if any.
+ *
+ * This — not `actor.statuses` — is the right test for "is our own marker present", because
+ * `statuses` is true whenever anything supplies the condition, buffs included. Deciding whether to
+ * create or drop the marker from `statuses` means never creating one while a buff is running, and
+ * then losing the marker (and, on the next tick, the bleed) the moment that buff ends.
+ *
+ * @param {Actor} actor
+ * @param {string} conditionId
+ * @returns {ActiveEffect|null}
+ */
+export function getActorConditionEffect(actor, conditionId) {
+  return actor?.effects.find((ae) => ae.statuses?.has(conditionId)) ?? null;
+}
+
+/* -------------------------------------------- *
  *  Deep Bleed availability
  *
  *  Lives here rather than in deep-bleed.mjs so the bleed engine can consult it without
  *  importing that module, which imports the engine in turn.
  * -------------------------------------------- */
 
-/** Setting key for the Deep Bleed homebrew rule. */
-export const SETTING_DEEP = "deepBleed";
+/**
+ * Setting key for the Astora Homebrew master switch — this module's non-RAW rules, of which Deep
+ * Bleed is currently the only one.
+ *
+ * The stored key is still `deepBleed`, from when the setting was named for that one rule. Renaming
+ * it would reset every existing world to the default and quietly switch the rule off, which is a
+ * worse outcome than an internal name that no longer matches its label.
+ */
+export const SETTING_HOMEBREW = "deepBleed";
 
 /** The module that supplies the allocation dialog Deep Bleed depends on. */
 export const CRITICAL_EFFECTS_ID = "pf1-critical-effects";
@@ -82,24 +144,44 @@ export function dedicatedHealingApi() {
 /**
  * Whether the integration is live. Runtime callers only — never during init.
  *
+ * Both halves have to agree. pf1-critical-effects carries the same Astora Homebrew switch, and
+ * dedicated healing is the mechanism this whole rule rests on — so with its switch off, a deep
+ * bleed would be a wound with nothing in the game able to close it. The API stays registered
+ * either way (existing wounds must remain payable); `enabled` is what says whether *new* ones may
+ * be created. Its absence means an older build of that module, which had no switch to consult.
+ *
  * @returns {boolean}
  */
 export function deepBleedAvailable() {
-  return !!dedicatedHealingApi();
+  const api = dedicatedHealingApi();
+  if (!api) return false;
+  return api.enabled?.() !== false;
 }
 
 /**
- * Whether Deep Bleed should apply to newly-inflicted bleed. Existing deep bleeds are read
- * straight off their entries, so turning the rule off mid-campaign lets what is already on an
- * actor clear normally rather than stranding it.
+ * Whether this world runs the Astora homebrew rules — and, since Deep Bleed is currently the only
+ * one, whether a new bleed may be inflicted as a deep wound.
+ *
+ * Existing deep bleeds are read straight off their entries and never consult this, so turning the
+ * rule off mid-campaign lets what is already on an actor be paid off and cleared normally rather
+ * than stranding it.
+ *
+ * @returns {boolean}
+ */
+export function homebrewEnabled() {
+  try {
+    return !!game.settings.get(MODULE_ID, SETTING_HOMEBREW);
+  } catch {
+    return false; // setting not registered yet (pre-init callers)
+  }
+}
+
+/**
+ * Whether Deep Bleed should apply to newly-inflicted bleed: the house rule is on for this world
+ * *and* the machinery behind it is available.
  *
  * @returns {boolean}
  */
 export function deepBleedEnabled() {
-  if (!deepBleedAvailable()) return false;
-  try {
-    return !!game.settings.get(MODULE_ID, SETTING_DEEP);
-  } catch {
-    return false; // setting not registered yet (pre-init callers)
-  }
+  return homebrewEnabled() && deepBleedAvailable();
 }

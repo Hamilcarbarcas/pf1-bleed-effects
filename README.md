@@ -31,7 +31,7 @@ Options after the formula (separated by `;`):
 
 - **`type`** — `hp` (the default), or an ability: `str`, `dex`, `con`, `int`, `wis`, `cha`.
 - **`mode`** — `damage` (the default) or `drain`. Only matters for ability bleed.
-- **`deep`** — hit points of dedicated healing needed to close the wound. See [Deep Bleed](#deep-bleed-homebrew); ignored unless that rule is switched on.
+- **`deep`** — hit points of dedicated healing needed to close the wound. See [Deep Bleed](#deep-bleed); ignored unless that rule is switched on.
 
 To apply it, **target** the creature(s) you want to bleed (or select their token) and click the button. Actor variables (such as `@abilities.str.mod`) are supported, using the source actor's values.
 
@@ -39,7 +39,33 @@ To apply it, **target** the creature(s) you want to bleed (or select their token
 
 You can also bleed a creature without the enricher — just put the **bleed condition** on it the usual way (the token's status icons, the character sheet, etc.). A small dialog asks for the amount/formula and type, and that becomes the creature's bleed. Choose **Marker Only** to leave the condition inert, the same as vanilla bleed.
 
-This prompt can be turned off under the module's **Prompt on manual bleed** setting (e.g. if you prefer to configure bleed only through the enricher or API).
+This prompt can be turned off under the module's **Prompt on manual bleed** setting (e.g. if you prefer to configure bleed only through the enricher or API). It never appears for bleed supplied by a buff — that has its own configuration, below.
+
+### From a buff
+
+A PF1 buff can list conditions under its **Conditions** field, and while the buff is active those conditions are on the creature. Put `Bleed` there and a **Bleed Damage** field appears beneath it on the buff sheet: an amount or formula, and whether it's hit points or ability damage/drain.
+
+That's the whole configuration, because the buff already handles the rest — switch it on and the creature bleeds, switch it off (or let its duration run out) and the bleeding stops. This is the right shape for anything whose bleeding should last exactly as long as something else: a spell's duration, a lingering wound effect, a monster's grab.
+
+Some things worth knowing:
+
+- **Leave the field blank for an inert marker** — the vanilla behaviour of a bleed condition with no damage behind it.
+- **The buff owns it.** Clicking the bleed condition off doesn't stop it; the buff re-supplies it. Switch the buff off.
+- **It's never stored on the creature.** Nothing is written when the buff activates, so a buff's bleed can't be left behind and can't be cleared by `clear()`.
+- **Formulas resolve against the buff, each round.** `@item.level` is the buff's level, so `1d6 + @item.level` scales as the buff does. Actor references such as `@abilities.str.mod` are the *bleeding creature's* — unlike `@Bleed`, there's no inflicting actor to read them from, so anything caster-derived has to be baked into the buff when it's handed out.
+- It stacks with other bleed exactly as any two bleeds do: highest of each type per round.
+- The bleed tooltips name the buff each effect came from.
+
+#### Wounds that outlive the buff
+
+The **Bleed Lasts** setting beneath the damage field chooses between the two:
+
+- **While active** (the default) — everything above. The bleeding stops with the buff.
+- **Persists after** — the buff inflicts the bleed *once*, when it activates, and that bleed stays when the buff is gone. Removing the cause isn't the same as closing the injury.
+
+A persisting bleed is an ordinary stored bleed in every respect: it can be cleared, it counts against `clear()`, and — with the [Deep Bleed](#deep-bleed) rule on — it can carry a **Healing to Close** threshold. Its formula is locked against the buff at the moment it's inflicted rather than re-read each round, so a wound doesn't get worse because the buff later leveled up. Re-activating the same buff won't inflict a second wound while the first is still open.
+
+Ticking **Blocks healing while active** on such a wound is the impaled case: an arrow still in the body, a parasite still burrowing. The wound can't be tended at all while that buff is on the creature — it appears in the healing allocation dialog greyed out, labelled with what's stopping it, and takes no healing until the buff is switched off or removed. That doesn't close it; it only makes it treatable. If the blocking buff is deleted, or vanishes for any other reason, the wound becomes healable rather than being left permanently stuck.
 
 ### Determining bleed damage
 
@@ -53,19 +79,25 @@ When a creature has bleed on it, hover its **bleed condition** to see a list of 
 - On the **token's** status icons.
 - Supports **Koboldworks – Little Helper's** buff display (optional) - includes the bleed effects in the tooltip.
 
+Bleed coming from a buff is labelled with the buff's name, since that's the one you can't stop by clicking the condition off.
+
 ## Stopping bleed
 
 Just **remove the bleed condition** like any other — click it off on the token's status icons, the character sheet, or Little Helper's display. The stored bleed amounts are cleared right away, so if you apply bleed again later it starts fresh instead of piling onto the old wounds.
 
-The one exception is a deep bleed, below.
+Two exceptions: a deep bleed, below, and bleed supplied by a buff, which ends when the buff does. Clicking the condition off with a bleeding buff still running clears everything else and leaves the buff's bleed going.
 
-## Deep Bleed (homebrew)
+## Astora Homebrew rules
 
-**Off by default. Requires [pf1-critical-effects](https://github.com/Hamilcarbarcas/pf1-critical-effects)** — when that module isn't active, the setting doesn't appear and none of this exists.
+One setting, **off by default**, enables everything in this module that isn't RAW. Right now that means Deep Bleed, below; anything non-RAW added later sits behind the same switch. [pf1-critical-effects](https://github.com/Hamilcarbarcas/pf1-critical-effects) carries an identically-named setting for its own house rules, and the two are meant to be set together.
+
+### Deep Bleed
+
+**Also requires pf1-critical-effects, with its own Astora Homebrew setting on** — that module supplies the dedicated-healing allocation dialog this rule is built on. With it missing or its switch off, no deep bleeds are inflicted (you'll get a warning if only one of the two switches is on) and everything else here is unaffected.
 
 A wound too deep to close on its own. Removing the bleed condition **does not stop it**; it closes only once a set number of hit points of **dedicated healing** have been spent on it — healing that would otherwise have gone to the character's own hit points.
 
-Switch it on under the module's **Deep Bleed (homebrew)** setting, then give any bleed a threshold:
+Switch on **Astora Homebrew rules** in both modules, then give any bleed a threshold:
 
 - `@Bleed[2d6;deep=20]` in a description or journal
 - the **Healing to Close** field in the manual-application dialog
@@ -78,8 +110,9 @@ Some things worth knowing:
 - **There's no Heal check.** Unlike the injury buffs dedicated healing was built for, a deep bleed is ready to absorb healing the moment it's inflicted. Nothing needs to be treated first.
 - **Each deep bleed is its own wound.** Two of them means two thresholds, paid separately, listed as two rows in the allocation dialog. Note that the tick engine still applies only the highest roll of each type per round — so two deep hit point bleeds cost double to close while dealing the damage of one.
 - **Clicking the condition off doesn't take.** The condition comes straight back and you get a notice saying how much healing is still owed. A GM who needs one gone regardless can force it: `pf1BleedEffects.clear(token, { force: true })`.
+- **A wound can be blocked from healing** while something is still in it — see [Wounds that outlive the buff](#wounds-that-outlive-the-buff). It sits in the allocation dialog greyed out, with the reason, until the cause is gone.
 - **Ordinary bleeds on the same creature clear normally.** Removing the condition drops those and keeps the deep ones.
-- **Turning the setting back off** stops new deep bleeds from being created but leaves existing ones payable, so nobody ends up with a wound that can't be closed.
+- **Turning the homebrew setting back off** — in either module — stops new deep bleeds from being created but leaves existing ones payable, so nobody ends up with a wound that can't be closed.
 
 ## Burning
 
@@ -132,7 +165,11 @@ Either way the outcome is the same as a save that never got rolled: no save card
 
 You can also drive burning from a **buff** — put `Burning` in the buff's Conditions list, and the damage automation picks it up like any other burning. This is a good fit when something else should govern how long the fire lasts (a spell's duration, a lingering effect), because the buff's own duration ends the burning.
 
-Burning supplied this way is always **saveless**, regardless of the DC or the save setting: it deals its 1d6 at the end of each of the creature's turns and ends when the buff does.
+A **Burning Damage** field appears beneath the Conditions list once `Burning` is in it. This is the only place burning's damage can be changed — `@Burning` and the API are always a flat 1d6 — so it's how you'd build a fire fiercer (or feebler) than the standard one. Leave it blank for 1d6. As with bleed, the formula is resolved against the buff each round, so `@item.level` scales with it.
+
+Burning **doesn't stack**: a creature is on fire or it isn't. If more than one thing has set it alight, the **most recently started** source decides the damage and the others are just along for the ride. (Sources that started in the same round count as simultaneous, and the buff wins.)
+
+Burning supplied this way is always **saveless**, regardless of the DC or the save setting: it deals its damage at the end of each of the creature's turns and ends when the buff does.
 
 That isn't a stylistic choice. A buff puts its condition on an Active Effect attached to the *item*, and PF1 can only remove condition effects that sit directly on the actor — so a save that "put the fire out" wouldn't actually remove anything, and the creature would be told it was safe while still burning. Rather than offer a save it can't honour, the module doesn't offer one. **To put out a buff-driven fire, switch off (or delete) the buff.**
 
@@ -186,13 +223,20 @@ await pf1BleedEffects.clear(token);
 // Deep Bleed: 20 HP of dedicated healing to close it
 await pf1BleedEffects.apply(token, { formula: "2d6", deepRequired: 20 });
 
+// ...that can't be tended until the arrow (a buff on the same actor) comes out
+await pf1BleedEffects.apply(token, { formula: "2d6", deepRequired: 20, blockedBy: arrowBuff });
+
 // Remove deep bleeds too, which every other clear leaves alone
 await pf1BleedEffects.clear(token, { force: true });
 ```
 
 `kind` is `"hp"` or `"<ability>.<damage|drain>"` (for example `"con.damage"` or `"str.drain"`).
 
-`deepRequired` is ignored unless the **Deep Bleed** setting is on and pf1-critical-effects is active. `list()` and `describe()` report an effect's progress on its `deep` property (`{ required, received, remaining }`, or `null`/absent for an ordinary bleed).
+`deepRequired` is ignored unless **Astora Homebrew rules** is on in both this module and pf1-critical-effects. `list()` and `describe()` report an effect's progress on its `deep` property (`{ required, received, remaining }`, or `null`/absent for an ordinary bleed).
+
+`blockedBy` takes an `Item` on the same actor (or its id/uuid) and is only meaningful alongside `deepRequired`: while that item is present *and active*, the wound accepts no dedicated healing and is listed as blocked in the allocation dialog. `describe()` reports the blocker's name on `blockedBy`, or `null`.
+
+`list()` and `describe()` include bleed supplied by buffs — those carry the buff on `source` (the `Item` from `list()`, its name from `describe()`) and cannot be removed by `clear()`. `listStored()` returns only what `clear()` can actually act on.
 
 ### Burning API
 
@@ -224,5 +268,5 @@ The same functions are available under `game.modules.get("pf1-bleed-effects").ap
 
 Optional:
 
-- **[pf1-critical-effects](https://github.com/Hamilcarbarcas/pf1-critical-effects)** — supplies the dedicated-healing allocation dialog the **Deep Bleed** homebrew rule is built on. Without it that setting is hidden and deep bleed isn't implemented; everything else is unaffected. (That module recommends this one in turn: much of its critical and fumble content inflicts bleed.)
+- **[pf1-critical-effects](https://github.com/Hamilcarbarcas/pf1-critical-effects)** — supplies the dedicated-healing allocation dialog the **Deep Bleed** homebrew rule is built on, and carries the matching **Astora Homebrew rules** setting. Without it (or with its homebrew off) deep bleed isn't implemented; everything else is unaffected. (That module recommends this one in turn: much of its critical and fumble content inflicts bleed.)
 - **Koboldworks – Little Helper** — bleed details are added to its buff-display tooltips.

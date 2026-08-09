@@ -15,7 +15,7 @@ import { BleedAPI } from "./bleed.mjs";
  * A deep bleed carries its outstanding dedicated healing on the same line — that number is the
  * only thing that will close it, so it belongs everywhere the bleed itself is shown.
  *
- * @param {Array<{label:string,formula:string,deep:{required:number,received:number,remaining:number}|null}>} effects
+ * @param {Array<{label:string,formula:string,deep:object|null,source:string|null}>} effects
  * @returns {string}
  */
 function bleedListHTML(effects) {
@@ -27,13 +27,28 @@ function bleedListHTML(effects) {
             required: e.deep.required,
           })}</span>`
         : "";
-      return `<li>${e.formula} ${e.label}${deep}</li>`;
+      // Naming the buff matters: this is the one bleed that clicking the condition off won't stop.
+      const source = e.source
+        ? ` <span class="pf1-bleed-source">${game.i18n.format("BLD.Display.FromSource", {
+            source: foundry.utils.escapeHTML(e.source),
+          })}</span>`
+        : "";
+      // And this is the one that won't take healing yet — the reason belongs next to the number
+      // that isn't going down.
+      const blocked = e.blockedBy
+        ? ` <span class="pf1-bleed-blocked">${game.i18n.format("BLD.Display.BlockedBy", {
+            source: foundry.utils.escapeHTML(e.blockedBy),
+          })}</span>`
+        : "";
+      return `<li>${e.formula} ${e.label}${deep}${source}${blocked}</li>`;
     })
     .join("");
 
   const notes = [];
   if (effects.length > 1) notes.push(game.i18n.localize("BLD.Display.HighestNote"));
   if (effects.some((e) => e.deep)) notes.push(game.i18n.localize("BLD.Display.DeepNote"));
+  if (effects.some((e) => e.source)) notes.push(game.i18n.localize("BLD.Display.SourceNote"));
+  if (effects.some((e) => e.blockedBy)) notes.push(game.i18n.localize("BLD.Display.BlockedNote"));
   const note = notes.length
     ? `<em class="pf1-bleed-tooltip-note">${notes.join("<br>")}</em>`
     : "";

@@ -5,9 +5,12 @@
  * on `updateCombat`, socket-routed application, condition-synced state) but is
  * simpler in one axis and richer in another:
  *
- *  - Damage is always `1d6` fire — there is no per-effect formula/stacking. It
- *    is run through the target's fire immunity, resistance, and vulnerability
- *    (see `adjustForResistance`).
+ *  - Damage is `1d6` fire, and burning does not stack: a creature is on fire or
+ *    it is not. A buff supplying the condition may override the formula (see
+ *    `activeSource`), which is the only way to change it — `@Burning` and the
+ *    API deliberately stay flat 1d6. Whatever is rolled is run through the
+ *    target's fire immunity, resistance, and vulnerability (see
+ *    `adjustForResistance`).
  *  - At the start of the burning creature's turn it may attempt a DC 15 Reflex
  *    save to put the fire out. A *success extinguishes and deals no damage*; a
  *    *failure deals 1d6 fire and burning persists*. If the turn ends with the
@@ -38,10 +41,20 @@
  * "is this actor on fire"; a small actor flag stores the save DC.
  */
 
-import { MODULE_ID, SOCKET, resolveActor, isActiveGM } from "./dot-common.mjs";
+import {
+  MODULE_ID,
+  SOCKET,
+  resolveActor,
+  isActiveGM,
+  getConditionSourceEffects,
+  getConditionSourceItems,
+} from "./dot-common.mjs";
 
 const CONDITION_ID = "burning";
-const FLAG_KEY = "burning"; // { dc:number, save:boolean }
+const FLAG_KEY = "burning"; // { dc:number, save:boolean, startTime:number }
+
+/** Item flag holding a buff's burning configuration: `{ formula }`. */
+export const BUFF_FLAG = "burning";
 const NEVELA_ID = "nevelas-automation-suite";
 const ROLL_REQUESTS_ID = "pf1-roll-requests";
 const SETTING_SAVE = "burningSavePrompt";
@@ -124,30 +137,50 @@ function getDC(actor) {
 }
 
 /**
- * The item(s) supplying the burning condition, if it is inherited from an item
- * rather than sitting on the actor directly.
- *
- * A PF1 buff that lists `burning` under its Conditions creates its Active
- * Effect on the *item*, not the actor. This is the same test PF1's own sheet
- * uses to mark a condition as "inherited" and lock its checkbox.
- *
- * @param {Actor} actor
- * @returns {Item[]}
- */
-function getConditionSourceItems(actor) {
-  return (actor.appliedEffects ?? [])
-    .filter((ae) => ae.parent instanceof Item && ae.statuses?.has(CONDITION_ID))
-    .map((ae) => ae.parent);
-}
-
-/**
  * Whether burning on this actor is supplied by an item (typically a buff).
  *
  * @param {Actor} actor
  * @returns {boolean}
  */
 function isItemSourced(actor) {
-  return getConditionSourceItems(actor).length > 0;
+  return getConditionSourceItems(actor, CONDITION_ID).length > 0;
+}
+
+/**
+ * The single burning source governing this fire.
+ *
+ * Unlike bleed, burning does not stack: a creature is on fire or it isn't, and only one thing
+ * decides how fiercely. When more than one source is present — two buffs, or a buff on top of a
+ * creature already alight — the **most recently started** one wins and the others are simply
+ * along for the ride.
+ *
+ * "Most recent" is measured in world time, because that is the only clock both sources share: a
+ * buff's effect records `duration.startTime`, so the actor flag records the same on application.
+ * Within a single round the two are therefore equal, and a tie goes to the buff — it is the one
+ * carrying a deliberately configured formula.
+ *
+ * @param {Actor} actor
+ * @returns {{formula:string, item:Item|null}|null}
+ */
+function activeSource(actor) {
+  let best = null;
+
+  const flag = actor.getFlag(MODULE_ID, FLAG_KEY);
+  if (flag) best = { formula: DAMAGE_FORMULA, item: null, startTime: Number(flag.startTime) || 0 };
+
+  for (const ae of getConditionSourceEffects(actor, CONDITION_ID)) {
+    const item = ae.parent;
+    const configured = String(item.getFlag(MODULE_ID, BUFF_FLAG)?.formula ?? "").trim();
+    const candidate = {
+      formula: configured || DAMAGE_FORMULA,
+      item,
+      startTime: Number(ae.duration?.startTime) || 0,
+    };
+    // `>=` so a tie in the same round resolves to the buff.
+    if (!best || candidate.startTime >= best.startTime) best = candidate;
+  }
+
+  return best;
 }
 
 /**
@@ -193,11 +226,20 @@ function resistanceEnabled() {
 /**
  * Roll one instance of burning fire damage, before any resistance.
  *
+ * With no override the formula comes from whichever source currently governs the fire, and a
+ * buff's formula is resolved against the *buff's* roll data so `@item.level` scaling works.
+ * Burning applied by hand or by `@Burning` has no configured formula and no source at all — both
+ * fall back to the flat 1d6.
+ *
  * @param {Actor} actor
+ * @param {string} [override] - Formula to roll instead of consulting the sources.
  * @returns {Promise<number>}
  */
-async function rollDamage(actor) {
-  const roll = await pf1.dice.RollPF.safeRoll(DAMAGE_FORMULA, actor.getRollData());
+async function rollDamage(actor, override) {
+  const source = override ? null : activeSource(actor);
+  const formula = override || source?.formula || DAMAGE_FORMULA;
+  const rollData = source?.item?.getRollData() ?? actor.getRollData();
+  const roll = await pf1.dice.RollPF.safeRoll(formula, rollData);
   return Math.max(0, Math.floor(roll.total || 0));
 }
 
@@ -285,10 +327,11 @@ function adjustForResistance(actor, raw) {
  * partial-mitigation cases.
  *
  * @param {Actor} actor
+ * @param {string} [override] - Formula to roll instead of consulting the sources.
  * @returns {Promise<{total:number, raw:number, resisted:number, vulnerable:boolean}>}
  */
-async function rollAndApplyDamage(actor) {
-  const result = adjustForResistance(actor, await rollDamage(actor));
+async function rollAndApplyDamage(actor, override) {
+  const result = adjustForResistance(actor, await rollDamage(actor, override));
   if (result.total > 0) await actor.applyDamage(result.total);
   return result;
 }
@@ -313,10 +356,13 @@ async function _applyLocal(actor, { dc = DEFAULT_DC, save = true } = {}) {
     return;
   }
 
-  await actor.setFlag(MODULE_ID, FLAG_KEY, { dc, save });
+  // startTime is what makes "most recent source wins" decidable against a buff's own start.
+  await actor.setFlag(MODULE_ID, FLAG_KEY, { dc, save, startTime: game.time.worldTime });
   if (!actor.statuses.has(CONDITION_ID)) await actor.setCondition(CONDITION_ID, true);
 
-  const result = await rollAndApplyDamage(actor);
+  // Catching fire deals *this* application's damage, not whatever source happens to be governing
+  // the ongoing burn — a buff already running shouldn't decide how hard the torch hits.
+  const result = await rollAndApplyDamage(actor, DAMAGE_FORMULA);
   await postResult(actor, result, "BLD.Burning.Ignite", "BLD.Burning.IgniteResisted", "ignite");
 }
 

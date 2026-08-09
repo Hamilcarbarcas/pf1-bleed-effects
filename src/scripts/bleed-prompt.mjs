@@ -8,7 +8,7 @@
  */
 
 import { MODULE_ID, BleedAPI } from "./bleed.mjs";
-import { deepBleedEnabled } from "./dot-common.mjs";
+import { deepBleedEnabled, getConditionSourceItems } from "./dot-common.mjs";
 
 const CONDITION_ID = "bleed";
 const SETTING_PROMPT = "promptOnManualApply";
@@ -112,11 +112,18 @@ async function promptBleed(actor) {
 /**
  * On manual bleed application (condition turned on with nothing configured),
  * prompt for the amount. Fires only on the client that toggled it.
+ *
+ * Switching on a buff that lists `bleed` also fires this hook — the buff's condition effect is
+ * created on the *item*, and the create bubbles up to the actor. That is not a manual application:
+ * the buff carries its own configuration (or is deliberately marker-only), and anything typed into
+ * this dialog would be written to the actor instead, outliving the buff that prompted it. So a
+ * condition arriving from an item is skipped outright.
  */
 Hooks.on("pf1ToggleActorCondition", (actor, conditionId, state) => {
   if (!state || conditionId !== CONDITION_ID) return; // only when bleed turns ON
   if (!actor?.isOwner) return;
   if (!game.settings.get(MODULE_ID, SETTING_PROMPT)) return;
-  if (BleedAPI.list(actor).length) return; // already configured (e.g. via @Bleed / API)
+  if (getConditionSourceItems(actor, CONDITION_ID).length) return; // supplied by a buff
+  if (BleedAPI.listStored(actor).length) return; // already configured (e.g. via @Bleed / API)
   promptBleed(actor);
 });

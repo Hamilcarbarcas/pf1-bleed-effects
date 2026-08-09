@@ -26,14 +26,15 @@
 
 import {
   MODULE_ID,
-  SETTING_DEEP,
+  SETTING_HOMEBREW,
   CRITICAL_EFFECTS_ID,
   criticalEffectsActive,
   dedicatedHealingApi,
   deepBleedAvailable,
   deepBleedEnabled,
+  homebrewEnabled,
 } from "./dot-common.mjs";
-import { BleedAPI, getEffects, writeEffects, deepStateOf } from "./bleed.mjs";
+import { BleedAPI, getStoredEffects, writeEffects, deepStateOf, blockerOf } from "./bleed.mjs";
 
 /** Provider id registered with pf1-critical-effects. */
 const PROVIDER_ID = "pf1-bleed-effects.deep";
@@ -49,9 +50,17 @@ const PROVIDER_ID = "pf1-bleed-effects.deep";
  */
 function deepParticipants(actor) {
   const out = [];
-  for (const effect of getEffects(actor)) {
+  // Stored effects only. Buff-supplied bleed is never deep — a wound that lasts exactly as long as
+  // its buff has nothing for dedicated healing to close.
+  for (const effect of getStoredEffects(actor)) {
     const deep = deepStateOf(effect);
     if (!deep) continue;
+
+    // A blocked wound is still reported, marked rather than hidden: pf1-critical-effects lists it
+    // greyed with the reason, so a healer can see there is a wound and what has to happen before
+    // it will take stitches. Omitting it would just make the healing vanish unexplained.
+    const blocker = blockerOf(actor, effect);
+
     out.push({
       id: `bleed:${effect.id}`,
       name: game.i18n.format("BLD.Deep.ParticipantName", {
@@ -60,6 +69,8 @@ function deepParticipants(actor) {
       }),
       required: deep.required,
       received: deep.received,
+      blocked: !!blocker,
+      blockedReason: blocker ? game.i18n.format("BLD.Deep.BlockedBy", { source: blocker.name }) : undefined,
       allocate: (amount) => allocate(actor, effect.id, amount),
     });
   }
@@ -79,12 +90,17 @@ function deepParticipants(actor) {
  * @returns {Promise<boolean>} Whether that closed the wound.
  */
 async function allocate(actor, effectId, amount) {
-  const effects = getEffects(actor);
+  const effects = getStoredEffects(actor);
   const index = effects.findIndex((e) => e.id === effectId);
   if (index === -1) return false;
 
   const deep = deepStateOf(effects[index]);
   if (!deep) return false;
+
+  // The dialog renders no input for a blocked wound, so this shouldn't be reachable — but the
+  // callback is handed out to another module and the block can lapse between enumeration and
+  // allocation. Refuse rather than quietly accept healing the rule says can't be spent.
+  if (blockerOf(actor, effects[index])) return false;
 
   const received = Math.min(deep.received + Math.max(0, amount), deep.required);
   const closed = received >= deep.required;
@@ -102,17 +118,17 @@ async function allocate(actor, effectId, amount) {
  * -------------------------------------------- */
 
 Hooks.once("init", () => {
-  // Hidden outright when pf1-critical-effects isn't switched on: a setting that silently does
-  // nothing is worse than no setting.
-  //
-  // The test is module activeness, NOT the presence of its API — see criticalEffectsActive().
-  // Init listeners run in module load order and this module sorts first, so the API is reliably
-  // absent at this point even on a world where both are installed.
-  game.settings.register(MODULE_ID, SETTING_DEEP, {
-    name: "BLD.Settings.DeepBleed.Name",
-    hint: "BLD.Settings.DeepBleed.Hint",
+  // Always shown, unlike the Deep Bleed setting it replaces. That one was hidden when
+  // pf1-critical-effects wasn't active, on the grounds that a setting doing nothing is worse than
+  // no setting — sound while it governed exactly one rule that needed that module, but wrong for
+  // a switch that stands for the module's homebrew as a whole and is meant to be found in the
+  // same place, saying the same thing, as pf1-critical-effects' own. What Deep Bleed additionally
+  // requires is stated in the hint, and enforced by deepBleedAvailable().
+  game.settings.register(MODULE_ID, SETTING_HOMEBREW, {
+    name: "BLD.Settings.Homebrew.Name",
+    hint: "BLD.Settings.Homebrew.Hint",
     scope: "world",
-    config: criticalEffectsActive(),
+    config: true,
     type: Boolean,
     default: false,
   });
@@ -132,10 +148,23 @@ Hooks.once("ready", () => {
     return;
   }
 
-  // Registered whether or not the setting is on. Turning the rule off stops *new* deep bleeds
-  // (see deepBleedEnabled in bleed.mjs); anything already on an actor stays payable, so a mid-
-  // campaign toggle doesn't strand a wound nobody can close.
+  // Registered whether or not either switch is on. Turning homebrew off stops *new* deep bleeds
+  // (see deepBleedEnabled); anything already on an actor stays payable, so a mid-campaign toggle
+  // doesn't strand a wound nobody can close.
   api.registerProvider(PROVIDER_ID, deepParticipants);
+
+  // Homebrew on here but off in the module that supplies the healing: the GM has switched on a
+  // rule that cannot run, and nothing else would say so. Every deep bleed would silently be
+  // inflicted as an ordinary one.
+  if (homebrewEnabled() && api.enabled?.() === false && game.user.isGM) {
+    ui.notifications.warn(
+      `${MODULE_ID}: Astora Homebrew is on here but off in ${CRITICAL_EFFECTS_ID}, which supplies the dedicated healing Deep Bleed needs — no new deep bleeds will be inflicted. Switch it on there too.`
+    );
+  }
 });
 
-export const DeepBleedAPI = { available: deepBleedAvailable, enabled: deepBleedEnabled };
+export const DeepBleedAPI = {
+  available: deepBleedAvailable,
+  enabled: deepBleedEnabled,
+  homebrew: homebrewEnabled,
+};

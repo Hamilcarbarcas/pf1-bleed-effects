@@ -44,6 +44,35 @@
   white-space: nowrap;
 }
 
+/* Buff-supplied bleed: which buff it came from, on the effect's own tooltip line. */
+.pf1-bleed-tooltip .pf1-bleed-source {
+  font-style: italic;
+  opacity: 0.8;
+}
+
+/* A deep wound that can't be tended yet, and what's stopping it. */
+.pf1-bleed-tooltip .pf1-bleed-blocked {
+  font-style: italic;
+  white-space: nowrap;
+}
+
+/* Buff sheet configuration rows. The hint wraps under the fields rather than widening the
+   sheet's form-fields row.
+
+   The colour is explicit and not inherited. PF1's V1 item sheets don't use `.hint` anywhere of
+   their own, so there is no sheet-level styling for it to pick up — left alone it lands on
+   whatever generic rule happens to win, which came out near-white on the sheet's beige. Same
+   token (and literal fallback) as pf1-critical-effects' section on this very tab. No `opacity`:
+   the muted look is the colour's job, and dimming a correct colour only washes it out again. */
+.pf1-bleed-buff-config .hint {
+  flex: 0 0 100%;
+  margin: 0.15em 0 0;
+  color: var(--color-text-dark-secondary, #4b4a44);
+  font-size: 0.85em;
+  line-height: 1.25;
+  white-space: normal;
+}
+
 /* Manual-application dialog */
 .pf1-bleed-dialog .notes {
   margin: 0.5em 0 0;

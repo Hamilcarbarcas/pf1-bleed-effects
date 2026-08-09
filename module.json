@@ -38,7 +38,8 @@
     "src/scripts/bleed-prompt.mjs",
     "src/scripts/deep-bleed.mjs",
     "src/scripts/burning.mjs",
-    "src/scripts/burning-enricher.mjs"
+    "src/scripts/burning-enricher.mjs",
+    "src/scripts/buff-config.mjs"
   ],
   "styles": [
     "src/styles/bleed.css",
