@@ -55,6 +55,7 @@
   "BLD.Burning.AutoNoSave": "{name} takes {total} fire damage from the flames (no save attempted).",
   "BLD.Burning.Resisted": "{name} keeps burning, but shrugs off the flames entirely.",
   "BLD.Burning.Immune": "{name} is immune to fire and cannot be set alight.",
+  "BLD.Burning.ImmuneMarker": "{name} is immune to fire — the flames do nothing.",
   "BLD.Burning.Note.Resisted": "{resisted} resisted",
   "BLD.Burning.Note.Vulnerable": "vulnerable to fire",
   "BLD.Burning.SaveFlavor": "{name} is on fire — Reflex DC {dc} to put it out.",

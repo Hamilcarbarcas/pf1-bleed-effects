@@ -90,6 +90,24 @@ const resolvedCards = new Set();
  */
 const pendingSaves = new Map();
 
+/**
+ * Actor UUIDs whose burning condition *this* client is in the middle of applying through
+ * `_applyLocal`, which deals its own opening damage.
+ *
+ * Turning the condition on fires `pf1ToggleActorCondition`, and that hook is now what deals the
+ * opening 1d6 for every other way burning can arrive — so without this the module's own path would
+ * roll it twice. The window is exact rather than heuristic: PF1 fires the hook synchronously from
+ * the end of `setConditions`, so the entry is added and removed either side of a single `await`
+ * and cannot outlive it.
+ *
+ * A flag test would be the simpler guard (it is what bleed's prompt uses), but it would also
+ * suppress the burst when a buff sets alight a creature that happens to already carry a stored
+ * burning — which is a genuine ignition, not a re-entry.
+ *
+ * @type {Set<string>}
+ */
+const igniting = new Set();
+
 /* -------------------------------------------- *
  *  Condition registration
  * -------------------------------------------- */
@@ -358,7 +376,15 @@ async function _applyLocal(actor, { dc = DEFAULT_DC, save = true } = {}) {
 
   // startTime is what makes "most recent source wins" decidable against a buff's own start.
   await actor.setFlag(MODULE_ID, FLAG_KEY, { dc, save, startTime: game.time.worldTime });
-  if (!actor.statuses.has(CONDITION_ID)) await actor.setCondition(CONDITION_ID, true);
+  if (!actor.statuses.has(CONDITION_ID)) {
+    // Claim the ignition before the condition goes on, so the toggle hook defers to the roll below.
+    igniting.add(actor.uuid);
+    try {
+      await actor.setCondition(CONDITION_ID, true);
+    } finally {
+      igniting.delete(actor.uuid);
+    }
+  }
 
   // Catching fire deals *this* application's damage, not whatever source happens to be governing
   // the ongoing burn — a buff already running shouldn't decide how hard the torch hits.
@@ -806,12 +832,46 @@ Hooks.once("ready", () => {
 Hooks.on("updateCombat", onUpdateCombat);
 
 /**
- * When the burning condition is removed by any means (token HUD, sheet, another
- * module), drop the stored DC flag so nothing lingers. Fires only on the client
- * that toggled it (an owner).
+ * Deal the opening 1d6 for a burning that arrived without going through `apply()` — the token HUD,
+ * the actor sheet, a buff switching on, or another module putting the condition there. Catching
+ * fire deals damage immediately however the fire was lit.
+ *
+ * The damage is whatever currently governs the fire rather than a flat 1d6, so a buff with its own
+ * Burning Damage formula hits as hard on ignition as it does each round afterwards.
+ *
+ * Fire-immune creatures take nothing and keep the marker: the condition is already on by the time
+ * this runs, and a buff-supplied one can't be removed from here anyway (PF1's `setConditions` only
+ * sees effects living directly on the actor). The turn-start tick clears it either way.
+ *
+ * @param {Actor} actor
+ */
+async function igniteFromCondition(actor) {
+  if (isFireImmune(actor)) {
+    await postCard(actor, game.i18n.format("BLD.Burning.ImmuneMarker", { name: `<strong>${actor.name}</strong>` }), "resist");
+    return;
+  }
+
+  const result = await rollAndApplyDamage(actor);
+  await postResult(actor, result, "BLD.Burning.Ignite", "BLD.Burning.IgniteResisted", "ignite");
+}
+
+/**
+ * Condition toggle handling. Fires only on the client that toggled it (an owner), so exactly one
+ * client acts — including for a buff, whose condition effect is created on the *item* but whose
+ * creation bubbles up to the actor as an ordinary toggle.
+ *
+ * ON — deal the opening damage, unless `_applyLocal` is mid-application and rolling it itself.
+ * OFF — drop the stored DC flag so nothing lingers.
  */
 Hooks.on("pf1ToggleActorCondition", (actor, conditionId, state) => {
-  if (state || conditionId !== CONDITION_ID) return; // only when burning turns OFF
+  if (conditionId !== CONDITION_ID) return;
   if (!actor?.isOwner) return;
+
+  if (state) {
+    if (igniting.has(actor.uuid)) return; // our own apply() path; it deals the burst
+    igniteFromCondition(actor);
+    return;
+  }
+
   if (actor.getFlag(MODULE_ID, FLAG_KEY)) actor.unsetFlag(MODULE_ID, FLAG_KEY);
 });

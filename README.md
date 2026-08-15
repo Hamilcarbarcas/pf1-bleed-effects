@@ -135,7 +135,9 @@ Options after the brackets (separated by `;`):
 - **`dc`** — the Reflex DC to put the fire out. Defaults to 15.
 - **`nosave`** — this burning offers no save. `save=false` does the same thing; a `dc` given alongside it is ignored.
 
-**Target** (or select) the creature(s) and click the button. Catching fire deals its first 1d6 immediately. You can also just apply the **burning condition** by hand (token status icons, sheet, etc.) — that uses the default DC 15 and no initial burst.
+**Target** (or select) the creature(s) and click the button. You can also just apply the **burning condition** by hand (token status icons, sheet, etc.) — that uses the default DC 15.
+
+**Catching fire deals damage immediately**, however the fire was lit: `@Burning`, the API, applying the condition by hand, switching on a buff that supplies it, or another module putting it there. A fire-immune creature takes nothing (see [Fire resistance and vulnerability](#fire-resistance-and-vulnerability)).
 
 ### How a burning turn plays out
 
@@ -166,6 +168,8 @@ Either way the outcome is the same as a save that never got rolled: no save card
 You can also drive burning from a **buff** — put `Burning` in the buff's Conditions list, and the damage automation picks it up like any other burning. This is a good fit when something else should govern how long the fire lasts (a spell's duration, a lingering effect), because the buff's own duration ends the burning.
 
 A **Burning Damage** field appears beneath the Conditions list once `Burning` is in it. This is the only place burning's damage can be changed — `@Burning` and the API are always a flat 1d6 — so it's how you'd build a fire fiercer (or feebler) than the standard one. Leave it blank for 1d6. As with bleed, the formula is resolved against the buff each round, so `@item.level` scales with it.
+
+Switching the buff on **counts as catching fire** and deals its damage immediately, using the buff's own formula — so a fiercer fire hits as hard on ignition as it does each round afterwards. Note that this is per switch-on: toggling a burning buff off and back on sets the creature alight again.
 
 Burning **doesn't stack**: a creature is on fire or it isn't. If more than one thing has set it alight, the **most recently started** source decides the damage and the others are just along for the ride. (Sources that started in the same round count as simultaneous, and the buff wins.)
 
