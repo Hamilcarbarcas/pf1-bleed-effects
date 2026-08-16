@@ -1,9 +1,10 @@
 # PF1 Bleed Effects
 
-Adds automated, configurable damage-over-time to the Pathfinder 1e **bleed** and **burning** conditions.
+Adds automated, configurable damage-over-time to the Pathfinder 1e **bleed** and **burning** conditions, and lets any item carry recurring damage or healing of its own.
 
 ## What it does
 
+- **[Damage over time on any item](#damage-over-time)** — a formula, a damage type and a timing, configured on the item's Advanced tab, applied to whoever carries it. Respects DR, energy resistance, hardness, immunity and vulnerability, and rolls animated dice.
 - Adds an enricher to apply specific types and amounts of bleed damage.
 - Prompts for an amount and type when the bleed condition is applied by hand.
 - Adds a **burning** condition (1d6 fire/round) with a turn-start Reflex save to put it out, or no save at all.
@@ -86,6 +87,125 @@ Bleed coming from a buff is labelled with the buff's name, since that's the one 
 Just **remove the bleed condition** like any other — click it off on the token's status icons, the character sheet, or Little Helper's display. The stored bleed amounts are cleared right away, so if you apply bleed again later it starts fresh instead of piling onto the old wounds.
 
 Two exceptions: a deep bleed, below, and bleed supplied by a buff, which ends when the buff does. Clicking the condition off with a bleeding buff still running clears everything else and leaves the buff's bleed going.
+
+### Healing stops it
+
+*"Bleed damage can be stopped with a DC 15 Heal check or through the application of any magical healing."*
+
+**Restoring a bleeding creature's hit points ends its bleeding automatically** — a cure spell, a potion, channelled energy, the Apply Healing button on a chat card, another module's automation, any of it. A short chat card says so, and the condition comes off with the last effect. Controlled by the **Healing stops bleed** setting (world scope, on by default).
+
+**Hand-edited hit points don't count.** Typing a number into the sheet's HP field, or into the token's health bar, leaves the bleeding exactly where it was. That's not a special case anyone had to guess at: every real healing effect in PF1 goes through the system's damage-application pipeline, and neither of those two do — the sheet writes the actor directly and the health bar has its own path. A GM correcting a number is book-keeping, not treatment.
+
+Details worth knowing:
+
+- **It stops all ordinary bleeding**, hit point and ability damage/drain alike. One cure spell, one clean creature.
+- **Deep bleeds are unaffected**, which is the entire point of them — they close only through dedicated healing. See [Deep Bleed](#deep-bleed).
+- **Bleed from a buff is unaffected**, for the same reason removing the condition doesn't stop it: the buff re-supplies it. Switch the buff off.
+- **Healing that restores no hit points does nothing** — a creature already at full, or healing that only touches nonlethal damage. There has to be something to regain.
+
+## Damage over time
+
+Every item sheet has a **Damage Over Time** section on its **Advanced** tab. Add an instance and, while that item is live on a creature, it deals damage (or heals) on the turn boundary you choose.
+
+This is separate from bleed and burning in every respect — different storage, different engine, no interaction. A buff can carry all three.
+
+### What "live" means
+
+| Item | Ticks while |
+| --- | --- |
+| **Buff** | it's switched on |
+| **Weapon, equipment, armor, loot** | it's equipped (and not destroyed, or buried in a container) |
+| **Implant** | it's implanted |
+| **Feat / feature** | it isn't disabled |
+| **Anything else** | it's on the actor at all |
+
+That's the system's own notion of an active item, so it matches what the rest of PF1 thinks. Note the last row is literal: a **spell** in a spellbook counts as present, so a DoT configured on a spell item ticks continuously. Put recurring effects on a buff, which is what buffs are for.
+
+The damage always lands on the creature **carrying** the item. This is for cursed blades, burning armor, regeneration rings, parasites and poisons — not for hurting someone else.
+
+### Configuring an instance
+
+- **Name** — optional; only used to label the row on the chat card.
+- **Formula** — anything PF1 can roll. Resolved against the *item*, so `@item.level` scales with a buff exactly as its other formulas do. A live preview shows the resolved value as you type.
+- **Damage / Healing** — healing hides the type and bypass controls, since nothing resists healing.
+- **Damage Type** — the system's own damage-type picker, the same one an action's damage parts use.
+- **Counts As** — material and alignment penetration; only shown for physical damage. See below.
+- **Ignores → Hardness** — skip the target's hardness entirely.
+- **Applies On** — turn start, turn end, or an initiative count.
+- **Also when it goes live** — off by default; see [Ticking on activation](#ticking-on-activation).
+
+Add as many instances as you like; each is configured and rolled independently. They're laid out as **tabs** — one per instance, plus a **+** to add another — the same as astora-mod's Buff Delivery section, so the two behave alike where they sit together on the Advanced tab. A tab is captioned by the instance's name (or *Instance 1*, *Instance 2*… until you give it one) and updates as you type. Untick **Enable** to park an instance without deleting it; its tab goes italic and greyed, and it stops firing.
+
+### Damage reduction, resistance and hardness
+
+Damage is run through the target's **damage reduction, energy resistance, hardness, damage immunity and vulnerability**, using PF1's own apply-damage machinery — the same code behind the dialog you get when you shift-click a damage card. What the dialog would have worked out is what gets applied.
+
+The catch is that a damage-over-time effect has no weapon behind it, so it's material-less and non-magic. Left alone, **DR 5/magic absorbs a 1d6 slashing tick entirely**. The **Counts As** chips fix that:
+
+- **Magic**, **cold iron**, **alchemical silver**, **adamantine**, **nexavaran steel**, **epic**
+- **Lawful**, **chaotic**, **good**, **evil**
+
+Tick whichever the effect should be treated as, and reduction that those overcome no longer applies. Adamantine also ignores hardness of 20 or less, exactly as it does for a weapon.
+
+**Counts As only appears when a physical damage type is selected**, because damage reduction in PF1 is exclusively a physical-damage mechanic — even DR/— leaves an acid tick untouched. On an energy or untyped instance the chips would be dead controls, so they're hidden, and any that were already ticked stop counting (they come back if you switch the type back to something physical).
+
+**Ignores → Hardness** is separate, and available on every damage instance. Hardness isn't like DR: objects and constructs reduce damage of *any* type by it, energy included, so an acid DoT against a construct meets hardness and sometimes needs a way past.
+
+Two more things worth knowing:
+
+- **Untyped damage bypasses everything.** Leave the damage type blank and the instance is untyped, which PF1 subjects to no DR, no energy resistance and no hardness. That's the escape hatch for effects that simply shouldn't be defended against.
+- **Vulnerability is applied automatically** (+50%, rounded down). PF1's own dialog leaves that box unticked and waits for a human to notice; a tick has no human to ask.
+
+Damage typed as **nonlethal** is applied as nonlethal damage.
+
+### When it fires
+
+- **Turn start** — as the carrier's turn begins.
+- **Turn end** — as the carrier's turn ends.
+- **Initiative count** — once per round, at the point in the initiative order the buff was *switched on* at. PF1 already stamps that count onto a buff's effect for duration purposes, and this reads the same one.
+
+**Initiative falls back to turn start** wherever there's no count to use — an equipped weapon, a feature, or a buff switched on outside combat, none of which have one. Rather than never firing, it behaves as turn start for that carrier.
+
+Ticks need turn structure, so **nothing fires outside combat**. An item configured with a DoT sits dormant until a combat is running, the same as burning.
+
+### Ticking on activation
+
+**Also when it goes live** deals one immediate tick the moment the buff is switched on, the item equipped, or the item added to the actor — for effects that should bite on contact rather than waiting for the next boundary. It's off by default so that switching a buff on during the carrier's own turn doesn't hit twice.
+
+Unlike the scheduled timings, this one **works out of combat**: it's an event rather than a schedule, and dropping it because no combat is running would just lose it.
+
+### Several instances at once
+
+Everything on one item sharing a timing is applied as a **single** damage application, so the target's DR is consumed once across all of it — the way an attack's several damage parts share a target's DR, not once per instance. Instances split apart only where they can't share: damage versus healing, lethal versus nonlethal, and differing **Counts As** sets.
+
+Different items never share. Two items each dealing 1d6 are two separate applications, and each meets the target's DR in full.
+
+### What you see
+
+One chat card per creature per tick, listing each instance with its formula and roll, then what actually landed:
+
+> **Kobold Sorcerer**
+> *Acid Blood* — 1d6 — **4** — acid
+> Takes 2 damage. *(2 resisted)*
+
+The mitigation aside spells out immunity, DR, resistance, hardness and vulnerability, so a reduced number never looks like a miscalculation. One card rather than one per instance keeps the chat log manageable — a bloated log is a real source of UI lag.
+
+The dice are real rolls animated through **Dice So Nice**, coloured by damage type wherever DSN is configured for it.
+
+### API
+
+```js
+// What's configured on an item
+pf1DamageOverTime.list(item);
+
+// Is it live on its actor right now?
+pf1DamageOverTime.isLive(item);
+
+// Fire a timing on demand, without waiting for the turn to come round
+await pf1DamageOverTime.trigger(token, "turnEnd");
+```
+
+Also available at `game.modules.get("pf1-bleed-effects").api.dot`.
 
 ## Astora Homebrew rules
 
@@ -203,9 +323,11 @@ Remove the **burning condition** like any other, or let a successful Reflex save
 
 - **A GM needs to be logged in** for bleed and burning to be dealt — the GM's client handles it behind the scenes to avoid issues with duplicate applications. Players can still apply either to a target, but the back-end processing is done via the GM client.
 - Bleed **ignores damage reduction and resistances** and pulls from temporary hit points first.
-- Ending bleed effects are still manual, there is no support yet for automated clearing of bleed effects via heal checks or hit point healing.
+- **Healing hit points now ends ordinary bleeding automatically** (see [Healing stops it](#healing-stops-it)). The DC 15 Heal check half of the rule is still manual.
 - Burning respects **fire immunity, resistance, and vulnerability** (see above). Both bleed and burning pull from temporary hit points first.
 - Burning ticks only **in combat** (it needs turn structure for the saves); a creature set on fire outside combat takes only the initial 1d6 until combat begins.
+- **Damage over time is the one that respects everything** — DR, energy resistance, hardness, immunity and vulnerability — because it goes through PF1's own damage pipeline rather than applying a flat number. If you want a recurring effect that a monster's DR can actually blunt, that's the one to reach for; bleed deliberately ignores all of it.
+- **Nevela's Automation Suite composes with damage over time automatically.** Temporary hit point pools, damage absorption, fortification and on-struck reactive triggers all apply to these ticks, with no configuration on either side.
 
 
 ## API

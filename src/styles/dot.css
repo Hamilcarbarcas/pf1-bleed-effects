@@ -1,0 +1,290 @@
+/* Damage over time — item-sheet section and chat card.
+   Class-scoped only, to avoid clobbering button/FontAwesome rules elsewhere. */
+
+/* -------------------------------------------- *
+ *  Tooltips
+ *
+ *  Foundry's `#tooltip` sets its background and its text colour in two separate declarations, both
+ *  in a layered core stylesheet — so any unlayered rule, from any module or theme, can replace one
+ *  without the other and leave near-white text on a light background. That is why every module in
+ *  this ecosystem scopes its tooltips with a class of its own and re-declares both properties: PF1
+ *  has `#tooltip.pf1`, Little Helper has a dozen `#tooltip.lil-*` rules, and the micro-modules each
+ *  carry their own. A tooltip that doesn't opt in is at the mercy of whoever last won `#tooltip`.
+ *
+ *  Our markup sets `data-tooltip-class="bld-tooltip"` on its roots, which Foundry's tooltip manager
+ *  inherits down to every `data-tooltip` inside, so this one rule covers the lot. Both properties
+ *  are stated together and neither uses a variable that a theme could redefine out from under it.
+ * -------------------------------------------- */
+
+#tooltip.bld-tooltip,
+.locked-tooltip.bld-tooltip {
+  background: rgba(0, 0, 0, 0.88);
+  color: #f5f2e8;
+  text-shadow: none;
+}
+
+#tooltip.bld-tooltip code,
+#tooltip.bld-tooltip strong,
+#tooltip.bld-tooltip em {
+  color: inherit;
+}
+
+/* -------------------------------------------- *
+ *  Collapsible section chrome
+ * -------------------------------------------- */
+
+.bld-collapsible .bld-collapse-header {
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Collapsed: the topical icon + label dim, which is the only state cue. */
+.bld-collapsible .bld-collapse-header,
+.bld-collapsible .bld-collapse-header i {
+  transition: opacity 120ms ease;
+}
+
+.bld-collapsible.bld-collapsed .bld-collapse-header {
+  opacity: 0.55;
+}
+
+.bld-collapsible .bld-collapse-header:hover {
+  opacity: 1;
+}
+
+/* Configured-count badge, pinned to the header's right edge. */
+.bld-collapsible .bld-collapse-badge {
+  flex: 0 0 auto;
+  margin-left: auto;
+  min-width: 1.6em;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--color-underline-header, #782e22);
+  color: #fff;
+  font-size: var(--font-size-11, 11px);
+  font-weight: normal;
+  text-align: center;
+}
+
+/* -------------------------------------------- *
+ *  Item-sheet section
+ * -------------------------------------------- */
+
+.bld-dot-section .bld-dot-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+.bld-dot-section .bld-dot-header i.fa-hourglass-half {
+  color: #7d3c98;
+}
+
+.bld-dot-section .bld-dot-empty {
+  margin-top: 0.35rem;
+  font-style: italic;
+  opacity: 0.8;
+}
+
+/* Tab strip — one tab per instance plus a "+", matching Buff Delivery so the two sections on the
+   same Advanced tab read as one idiom. */
+.bld-dot-section .bld-dot-tabs {
+  display: flex;
+  flex-flow: row wrap;
+  align-items: flex-end;
+  gap: 0.15rem;
+  margin: 0.35rem 0 0;
+  border-bottom: 1px solid var(--color-border-light-tertiary, #bbb);
+}
+
+.bld-dot-section .bld-dot-tab {
+  flex: 0 0 auto;
+  max-width: 12em;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--color-border-light-tertiary, #bbb);
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  background: rgba(0, 0, 0, 0.05);
+  font-size: var(--font-size-12, 12px);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bld-dot-section .bld-dot-tab.active {
+  background: var(--color-bg, rgba(0, 0, 0, 0));
+  font-weight: bold;
+  margin-bottom: -1px; /* sit over the strip's bottom border */
+  border-bottom: 1px solid var(--color-bg, transparent);
+}
+
+/* A disabled instance stays legible but visibly inert. */
+.bld-dot-section .bld-dot-tab.bld-dot-tab-disabled .bld-dot-tab-label {
+  opacity: 0.5;
+  font-style: italic;
+}
+
+.bld-dot-section .bld-dot-tab-add {
+  padding: 0.1rem 0.45rem;
+  font-weight: bold;
+}
+
+/* Only the active instance's panel is shown. */
+.bld-dot-panel {
+  display: none;
+  margin-top: 0.35rem;
+}
+
+.bld-dot-panel.active {
+  display: block;
+}
+
+.bld-dot-panel .form-group {
+  margin: 0.15em 0;
+}
+
+.bld-dot-panel .bld-dot-panel-actions {
+  justify-content: flex-end;
+}
+
+.bld-dot-panel .bld-dot-delete {
+  flex: 0 0 auto;
+  color: #7a2e2e;
+  font-size: var(--font-size-12, 12px);
+  opacity: 0.75;
+}
+
+.bld-dot-panel .bld-dot-delete:hover {
+  opacity: 1;
+  color: var(--color-level-error, #b60000);
+}
+
+.bld-dot-panel .bld-dot-enable {
+  margin-left: auto;
+}
+
+.bld-dot-panel .bld-dot-enable,
+.bld-dot-panel .bld-dot-onactivate {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-size: var(--font-size-12, 12px);
+  font-weight: normal;
+}
+
+/* Resolved-formula readout beside the formula input. */
+.bld-dot-panel .bld-dot-preview {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 0 0.35em;
+  color: #4a6741;
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+
+/* The damage-type chips, borrowed from the action sheet, made obviously clickable. */
+.bld-dot-panel .bld-dot-types {
+  display: block;
+  flex: 1;
+  padding: 0 0.25em;
+  border: 1px solid var(--color-border-light-tertiary, #c9c7b8);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+}
+
+.bld-dot-panel .bld-dot-types:hover {
+  border-color: #7d3c98;
+}
+
+/* Bypass chips wrap into as many rows as they need. */
+.bld-dot-panel .bld-dot-bypass {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15em 0.6em;
+}
+
+.bld-dot-panel .bld-dot-chip {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-size: var(--font-size-12, 12px);
+}
+
+/* -------------------------------------------- *
+ *  Chat card
+ * -------------------------------------------- */
+
+.bld-dot-card p {
+  margin: 0 0 0.25em;
+}
+
+.bld-dot-card .bld-dot-title {
+  padding-bottom: 0.15em;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.bld-dot-card .bld-dot-bucket + .bld-dot-bucket {
+  margin-top: 0.4em;
+}
+
+.bld-dot-card .bld-dot-source {
+  font-size: 0.95em;
+  opacity: 0.85;
+}
+
+.bld-dot-card .bld-dot-source i.fa-hourglass-half {
+  color: #7d3c98;
+}
+
+.bld-dot-card .bld-dot-source i.fa-heart-pulse {
+  color: #2e7d32;
+}
+
+.bld-dot-card .bld-dot-rows {
+  margin: 0.1em 0 0.2em;
+  padding: 0;
+  list-style: none;
+}
+
+.bld-dot-card .bld-dot-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4em;
+  font-size: 0.95em;
+}
+
+.bld-dot-card .bld-dot-label {
+  flex: 1 1 auto;
+}
+
+.bld-dot-card .bld-dot-roll {
+  flex: 0 0 auto;
+  opacity: 0.7;
+  font-family: var(--font-monospace, monospace);
+  font-size: 0.9em;
+}
+
+.bld-dot-card .bld-dot-value {
+  flex: 0 0 auto;
+  min-width: 1.5em;
+  font-weight: bold;
+  text-align: right;
+}
+
+.bld-dot-card .bld-dot-types {
+  flex: 0 0 auto;
+  opacity: 0.8;
+  font-size: 0.9em;
+}
+
+.bld-dot-card .bld-dot-outcome {
+  font-weight: bold;
+}
+
+/* Mitigation aside: "(5 DR; 2 resisted)" */
+.bld-dot-card .bld-dot-note {
+  color: #6b6b6b;
+  font-size: 0.9em;
+  font-style: italic;
+  font-weight: normal;
+}

@@ -41,6 +41,11 @@
   "BLD.Deep.BlockedBy": "blocked by {source}",
   "BLD.Deep.CannotClear": "{name}'s deep bleed still needs {remaining} HP of dedicated healing.",
 
+  "BLD.Settings.HealingStops.Name": "Healing stops bleed",
+  "BLD.Settings.HealingStops.Hint": "Restoring hit points ends ordinary bleeding. Hand-edited totals (the sheet's HP field, the token's health bar) don't count, and deep bleeds are unaffected.",
+
+  "BLD.Healing.Stops": "{name} is healed, and the bleeding stops.",
+
   "BLD.Settings.Homebrew.Name": "Astora Homebrew rules",
   "BLD.Settings.Homebrew.Hint": "Enables non-RAW rules (currently Deep Bleed). Needs pf1-critical-effects' matching setting too. Off stops new ones only.",
 
@@ -85,5 +90,41 @@
   "BLD.Buff.BlocksLabel": "Blocks healing while active",
   "BLD.Buff.BurningLabel": "Burning Damage",
   "BLD.Buff.BurningHint": "Fire damage each round while active. Blank = 1d6. Never offers a save.",
-  "BLD.Buff.FormulaPlaceholder": "e.g. 1d6"
+  "BLD.Buff.FormulaPlaceholder": "e.g. 1d6",
+
+  "BLD.DoT.Heading": "Damage Over Time",
+  "BLD.DoT.Add": "Add an instance",
+  "BLD.DoT.Empty": "Nothing configured. Click + to add an instance of recurring damage or healing.",
+  "BLD.DoT.Delete": "Delete instance",
+  "BLD.DoT.DeleteConfirm": "Delete <strong>{name}</strong>? This cannot be undone.",
+  "BLD.DoT.InstanceN": "Instance {n}",
+  "BLD.DoT.NameLabel": "Name",
+  "BLD.DoT.Enable": "Enable",
+  "BLD.DoT.FormulaLabel": "Formula",
+  "BLD.DoT.KindDamage": "Damage",
+  "BLD.DoT.KindHealing": "Healing",
+  "BLD.DoT.TypeLabel": "Damage Type",
+  "BLD.DoT.TypeTitle": "Click to choose damage types",
+  "BLD.DoT.BypassLabel": "Counts As",
+  "BLD.DoT.BypassHint": "Lets the damage through reduction these overcome — e.g. tick Magic so DR/magic doesn't absorb it. Only shown for physical damage, which is the only kind DR applies to.",
+  "BLD.DoT.IgnoreLabel": "Ignores",
+  "BLD.DoT.IgnoreHardness": "Hardness",
+  "BLD.DoT.IgnoreHardnessHint": "Objects and constructs reduce damage of any type by their hardness. Adamantine already ignores hardness of 20 or less.",
+  "BLD.DoT.TimingLabel": "Applies On",
+  "BLD.DoT.TimingHint": "Initiative uses the count the buff was switched on at, and falls back to turn start when there isn't one.",
+  "BLD.DoT.OnActivate": "Also when it goes live",
+  "BLD.DoT.Timing.turnStart": "Turn start",
+  "BLD.DoT.Timing.turnEnd": "Turn end",
+  "BLD.DoT.Timing.initiative": "Initiative count",
+
+  "BLD.DoT.Damaged": "Takes {total} damage.",
+  "BLD.DoT.Healed": "Heals {total}.",
+  "BLD.DoT.Negated": "Takes nothing — it's all absorbed.",
+  "BLD.DoT.Note.Vulnerable": "vulnerable",
+  "BLD.DoT.Note.Immune": "{amount} immune",
+  "BLD.DoT.Note.DR": "{amount} to DR",
+  "BLD.DoT.Note.Resisted": "{amount} resisted",
+  "BLD.DoT.Note.Hardness": "{amount} to hardness",
+
+  "BLD.DoT.Error.NoTarget": "Damage over time: no valid target actor."
 }

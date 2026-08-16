@@ -1,7 +1,32 @@
 # Damage Over Time — Design
 
-Status: **design, not yet built**. This document is the source of truth for the feature; update it
-as decisions change rather than letting the code drift away from it.
+Status: **built**. This document is the source of truth for the feature; update it as decisions
+change rather than letting the code drift away from it.
+
+Three things landed differently from the plan below, all discovered during the build:
+
+- **Buckets also split on the bypass set.** Materials are a property of the whole application, not of
+  an instance, so two instances on one item with different "counts as" chips can't share one call.
+- **Untyped damage bypasses everything.** PF1's `_isReducedBy` only reduces instances that are
+  physical or energy, and hardness skips untyped outright — so an instance with no damage type set
+  meets no DR, no ER and no hardness. Documented as a deliberate escape hatch rather than fixed.
+- **`onActivate` fires out of combat.** It's an event, not a schedule; dropping it because no combat
+  is running would simply lose it. The *scheduled* timings remain combat-only as designed.
+
+Two later refinements:
+
+- **Counts As is hidden unless a physical damage type is selected.** `_isReducedBy()` rejects any
+  non-physical instance before it looks at the reduction at all, so DR — generic DR included — never
+  touches energy or untyped damage, and the chips would be dead controls there. `normalize()` drops
+  the stored values under the same test (`hasPhysicalType`), so the UI and the engine can't disagree
+  and a hidden chip is never quietly in effect. Dropped on *read*, not on write, so switching the
+  type back restores what the user had picked.
+- **An explicit "Ignores → Hardness" checkbox**, shown on every damage instance regardless of type,
+  because hardness is not DR: `_refreshTarget` applies it to any non-untyped instance, energy
+  included. Implemented by switching `target.hardness.active` off and re-running `_refreshTarget()`
+  — the same thing the dialog's own checkbox does — and skipped entirely if that method ever
+  disappears, so the failure mode is hardness still applying rather than a stale double-count.
+  Adamantine in Counts As continues to zero hardness ≤ 20 on its own, which is the system's rule.
 
 ## What it is
 
@@ -171,6 +196,29 @@ damage absorption, fortification, stacked DR and on-struck reactive triggers —
 `_nasDamageDialog` marker, stamped by its own wrapper on `_getTargetDamageOptions`, tells it DR has
 already been accounted for, so nothing double-reduces. Its `applyNasHeadlessDamage()` is not on a
 public API and must not be reached for.
+
+### Nevela's cannot compute the reduction for us — checked, don't retry it
+
+Handing Nevela's a bare `actor.applyDamage(value)` and letting it work out DR/ER **does not work**.
+Its wrapper has three DR-touching paths and none of them fire for an automated tick:
+
+- `normalizeStackedDamageReductionOptions` returns immediately unless `options.reduction` is already
+  `> 0`. It corrects a reduction that stacked DR entries over-counted; it never derives one.
+- `getMismatchedChatTargetHardnessFallback` requires a click context (`interactive` / `element` /
+  `event`) plus chat-card targets. A tick has none, so it returns `null`.
+- `nativeDamageReductionForApplyDamage` runs only inside `if (actorHasAbsorptionData(actor))`, and
+  its first line returns zero when `reduction > 0` anyway.
+
+With no `reduction` passed, the wrapper falls through to the system's `applyDamage`, which does no
+DR/ER — so the result would be no DR, no energy resistance, no hardness and no immunities. Energy
+resistance in particular is never computed on that path; Nevela's ER helper is only used for
+absorption-*converted* damage.
+
+The root reason is that Nevela's has no independent DR engine to defer to: its real handling comes
+from wrapping `ApplyDamage.prototype._getTargetDamageOptions`, the same system math this design uses.
+Computing the reduction ourselves also *improves* the interop, because
+`nativeDamageReductionForApplyDamage` bails when `reduction > 0` — our value suppresses their
+fallback rather than racing it.
 
 ## Dice and chat
 

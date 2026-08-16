@@ -110,3 +110,8 @@
 .pf1-bleed-card i.fa-droplet {
   color: #c0392b;
 }
+
+/* "Healing stops the bleeding" card — the closing counterpart to a tick. */
+.pf1-bleed-card.pf1-bleed-healed i.fa-bandage {
+  color: #2e7d32;
+}

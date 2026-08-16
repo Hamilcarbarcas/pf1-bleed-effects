@@ -1,7 +1,7 @@
 {
   "id": "pf1-bleed-effects",
   "title": "PF1 Bleed Effects",
-  "description": "<p>Turns the Pathfinder 1e <em>bleed</em> and <em>burning</em> conditions into automated, recurring damage. Bleed deals its damage at the start of the afflicted actor's turn and can target hit points or ability damage/drain. Burning deals 1d6 fire per round, gated by a turn-start DC 15 Reflex save to put it out (using Roll Requests when installed, or a self-contained save-button card otherwise). Apply either via the <code>@Bleed[...]</code> / <code>@Burning[...]</code> enrichers or the module API.</p>",
+  "description": "<p>Turns the Pathfinder 1e <em>bleed</em> and <em>burning</em> conditions into automated, recurring damage. Bleed deals its damage at the start of the afflicted actor's turn and can target hit points or ability damage/drain. Burning deals 1d6 fire per round, gated by a turn-start DC 15 Reflex save to put it out (using Roll Requests when installed, or a self-contained save-button card otherwise). Apply either via the <code>@Bleed[...]</code> / <code>@Burning[...]</code> enrichers or the module API.</p><p>Also adds a general <strong>damage over time</strong> option to the Advanced tab of any item: any number of independently configured instances of recurring damage or healing, each with a formula, a damage type and a turn-start / turn-end / initiative timing, dealt to whoever carries the item while it is equipped or active. Damage is run through the target's damage reduction, energy resistance, hardness, immunity and vulnerability using the system's own machinery, with optional material and alignment penetration, and rolls animated damage-typed dice.</p>",
   "authors": [
     {
       "name": "Hamilcarbarcas",
@@ -36,14 +36,18 @@
     "src/scripts/bleed-enricher.mjs",
     "src/scripts/bleed-display.mjs",
     "src/scripts/bleed-prompt.mjs",
+    "src/scripts/bleed-healing.mjs",
     "src/scripts/deep-bleed.mjs",
     "src/scripts/burning.mjs",
     "src/scripts/burning-enricher.mjs",
-    "src/scripts/buff-config.mjs"
+    "src/scripts/buff-config.mjs",
+    "src/scripts/dot.mjs",
+    "src/scripts/dot-config.mjs"
   ],
   "styles": [
     "src/styles/bleed.css",
-    "src/styles/burning.css"
+    "src/styles/burning.css",
+    "src/styles/dot.css"
   ],
   "languages": [
     {
