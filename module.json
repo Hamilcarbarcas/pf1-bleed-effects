@@ -42,7 +42,8 @@
     "src/scripts/burning-enricher.mjs",
     "src/scripts/buff-config.mjs",
     "src/scripts/dot.mjs",
-    "src/scripts/dot-config.mjs"
+    "src/scripts/dot-config.mjs",
+    "src/scripts/dot-timejump.mjs"
   ],
   "styles": [
     "src/styles/bleed.css",

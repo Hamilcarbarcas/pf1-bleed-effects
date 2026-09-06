@@ -2,16 +2,12 @@
   "BLD.Kind.HP": "HP",
   "BLD.Kind.Damage": "Damage",
   "BLD.Kind.Drain": "Drain",
-
   "BLD.Error.NoTarget": "Bleed: no valid target actor.",
   "BLD.Error.NoFormula": "Bleed: no damage formula provided.",
   "BLD.Error.InvalidType": "Bleed: invalid type \"{kind}\".",
-
   "BLD.Card.Suffers": "{name} suffers bleed:",
-
   "BLD.Settings.PromptOnManual.Name": "Prompt on manual bleed",
   "BLD.Settings.PromptOnManual.Hint": "Ask for an amount and type when the condition is applied by hand. @Bleed and the API are unaffected.",
-
   "BLD.Prompt.HitPoints": "Hit Points",
   "BLD.Prompt.AmountLabel": "Amount / Formula",
   "BLD.Prompt.TypeLabel": "Type",
@@ -22,12 +18,10 @@
   "BLD.Prompt.MarkerOnly": "Marker Only",
   "BLD.Prompt.DeepLabel": "Deep Bleed",
   "BLD.Prompt.DeepNote": "0 = ordinary bleed. Higher closes only through that much dedicated healing.",
-
   "BLD.Enricher.Tooltip": "Apply bleed ({kind}): {formula}",
   "BLD.Enricher.TooltipDeep": "Apply deep bleed ({kind}): {formula} — {deep} HP of dedicated healing to close",
   "BLD.Enricher.DefaultLabel": "Bleed: {formula}",
   "BLD.Enricher.NoTarget": "Bleed: no target. Select or target a token first.",
-
   "BLD.Display.Heading": "Bleed",
   "BLD.Display.HighestNote": "Highest of each type applies each round.",
   "BLD.Display.DeepProgress": "— deep, {received}/{required} healing",
@@ -36,21 +30,15 @@
   "BLD.Display.SourceNote": "Buff bleed ends with the buff.",
   "BLD.Display.BlockedBy": "— blocked by {source}",
   "BLD.Display.BlockedNote": "Blocked: no healing until the cause is gone.",
-
   "BLD.Deep.ParticipantName": "Deep Bleed ({formula} {kind})",
   "BLD.Deep.BlockedBy": "blocked by {source}",
   "BLD.Deep.CannotClear": "{name}'s deep bleed still needs {remaining} HP of dedicated healing.",
-
   "BLD.Settings.HealingStops.Name": "Healing stops bleed",
   "BLD.Settings.HealingStops.Hint": "Restoring hit points ends ordinary bleeding. Hand-edited totals (the sheet's HP field, the token's health bar) don't count, and deep bleeds are unaffected.",
-
   "BLD.Healing.Stops": "{name} is healed, and the bleeding stops.",
-
   "BLD.Settings.Homebrew.Name": "Astora Homebrew rules",
   "BLD.Settings.Homebrew.Hint": "Enables non-RAW rules (currently Deep Bleed). Needs pf1-critical-effects' matching setting too. Off stops new ones only.",
-
   "BLD.Condition.Burning": "Burning",
-
   "BLD.Burning.Ignite": "{name} catches fire and takes {total} fire damage.",
   "BLD.Burning.IgniteResisted": "{name} catches fire, but shrugs off the flames entirely.",
   "BLD.Burning.Extinguish": "{name} makes the save and puts out the flames.",
@@ -68,18 +56,14 @@
   "BLD.Burning.Card.SaveButton": "Reflex Save (DC {dc}) to put out the flames",
   "BLD.Burning.Error.NoTarget": "Burning: no valid target actor.",
   "BLD.Burning.NoControl": "Burning: you don't control {name}.",
-
   "BLD.Burning.Enricher.Tooltip": "Set on fire (1d6 fire/round, Reflex DC {dc} to put out)",
   "BLD.Burning.Enricher.TooltipNoSave": "Set on fire (1d6 fire/round, no save to put out)",
   "BLD.Burning.Enricher.DefaultLabel": "Burning",
   "BLD.Burning.Enricher.NoTarget": "Burning: no target. Select or target a token first.",
-
   "BLD.Settings.SavePrompt.Name": "Reflex save vs. burning",
   "BLD.Settings.SavePrompt.Hint": "Burning creatures may roll a Reflex save each turn to put the flames out. Off: no save is offered anywhere.",
-
   "BLD.Settings.Resistance.Name": "Burning respects fire resistance",
   "BLD.Settings.Resistance.Hint": "Run burning damage through fire resistance and vulnerability. Off applies it flat. Immunity always applies.",
-
   "BLD.Buff.BleedLabel": "Bleed Damage",
   "BLD.Buff.BleedHint": "Dealt each round while active. Blank = inert marker.",
   "BLD.Buff.ModeLabel": "Bleed Lasts",
@@ -91,7 +75,6 @@
   "BLD.Buff.BurningLabel": "Burning Damage",
   "BLD.Buff.BurningHint": "Fire damage each round while active. Blank = 1d6. Never offers a save.",
   "BLD.Buff.FormulaPlaceholder": "e.g. 1d6",
-
   "BLD.DoT.Heading": "Damage Over Time",
   "BLD.DoT.Add": "Add an instance",
   "BLD.DoT.Empty": "Nothing configured. Click + to add an instance of recurring damage or healing.",
@@ -116,7 +99,6 @@
   "BLD.DoT.Timing.turnStart": "Turn start",
   "BLD.DoT.Timing.turnEnd": "Turn end",
   "BLD.DoT.Timing.initiative": "Initiative count",
-
   "BLD.DoT.Damaged": "Takes {total} damage.",
   "BLD.DoT.Healed": "Heals {total}.",
   "BLD.DoT.Negated": "Takes nothing — it's all absorbed.",
@@ -125,6 +107,17 @@
   "BLD.DoT.Note.DR": "{amount} to DR",
   "BLD.DoT.Note.Resisted": "{amount} resisted",
   "BLD.DoT.Note.Hardness": "{amount} to hardness",
-
-  "BLD.DoT.Error.NoTarget": "Damage over time: no valid target actor."
+  "BLD.DoT.Error.NoTarget": "Damage over time: no valid target actor.",
+  "BLD.TimeJump.Burning": "Is on fire and owes a Reflex save each round.",
+  "BLD.TimeJump.BurningDetail": "DC {dc}. Not simulated — resolve before advancing.",
+  "BLD.TimeJump.Heading": "Time passes",
+  "BLD.TimeJump.Takes": "takes {n}",
+  "BLD.TimeJump.Heals": "heals {n}",
+  "BLD.TimeJump.Over": "{parts} over {rounds} rounds: {hp}/{max}.",
+  "BLD.TimeJump.Death": "Drops below 0 at round {round}.",
+  "BLD.TimeJump.Truncated": "Not resolved within {rounds} rounds; only those are applied.",
+  "BLD.TimeJump.Healing": "{item}: {formula} healing",
+  "BLD.TimeJump.Damage": "{item}: {formula} {types}",
+  "BLD.TimeJump.Reduced": ", {n} reduced",
+  "BLD.TimeJump.Bleed": "bleed: {n} {kind}"
 }

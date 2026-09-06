@@ -875,3 +875,28 @@ Hooks.on("pf1ToggleActorCondition", (actor, conditionId, state) => {
 
   if (actor.getFlag(MODULE_ID, FLAG_KEY)) actor.unsetFlag(MODULE_ID, FLAG_KEY);
 });
+
+/**
+ * Block a time jump over a burning creature.
+ *
+ * Burning *could* run headless — a save-less burning already deals its 1d6 each
+ * turn without a click. It is still not simulated, because the save extinguishes
+ * the fire: auto-rolling it decides how long the creature burned, which is a
+ * scene rather than a calculation.
+ *
+ * Contributes a warning and no commit, so nothing happens even if the GM
+ * proceeds. See DESIGN-TIMEJUMP.md §5.
+ */
+Hooks.on("astoraTimeAdvance", ({ targets, warnings }) => {
+  for (const { actor, name } of targets) {
+    if (!actor?.statuses?.has(CONDITION_ID)) continue;
+
+    warnings.push({
+      name,
+      severity: "block",
+      text: "Is on fire and owes a Reflex save each round.",
+      detail: `DC ${getDC(actor)}. Not simulated — resolve before advancing.`,
+      actor,
+    });
+  }
+});

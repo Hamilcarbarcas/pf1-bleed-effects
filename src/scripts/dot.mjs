@@ -170,7 +170,7 @@ function recordedInitiative(item) {
  * @param {object} inst
  * @returns {string}
  */
-function effectiveTiming(item, inst) {
+export function effectiveTiming(item, inst) {
   if (inst.timing !== "initiative") return inst.timing;
   return recordedInitiative(item) === null ? "turnStart" : "initiative";
 }
@@ -182,7 +182,7 @@ function effectiveTiming(item, inst) {
  * @param {string} timing
  * @returns {Array<{item:Item, inst:object}>}
  */
-function collect(actor, timing) {
+export function collect(actor, timing) {
   const out = [];
   for (const item of actor?.items ?? []) {
     if (!isLive(item)) continue;
@@ -209,7 +209,7 @@ function collect(actor, timing) {
  * @param {object} inst
  * @returns {Promise<Roll|null>}
  */
-async function rollInstance(item, inst) {
+export async function rollInstance(item, inst) {
   const types = inst.kind === "healing" ? ["untyped"] : (inst.types.length ? inst.types : ["untyped"]);
   try {
     const roll = new pf1.dice.DamageRoll(inst.formula, item.getRollData(), { damageType: types });
@@ -233,7 +233,7 @@ async function rollInstance(item, inst) {
  * @param {string[]} types
  * @returns {boolean}
  */
-function isVulnerable(actor, types) {
+export function isVulnerable(actor, types) {
   const dv = actor?.system?.traits?.dv?.total;
   if (!dv?.has) return false;
   return types.some((t) => dv.has(t));
@@ -287,7 +287,7 @@ function fakeAction(bypass) {
  * @param {boolean} [ignoreHardness]
  * @returns {{options:object, reduction:object}|null}
  */
-function reductionFor(actor, value, instances, bypass, ignoreHardness = false) {
+export function reductionFor(actor, value, instances, bypass, ignoreHardness = false) {
   try {
     const app = new pf1.applications.ApplyDamage({
       value,
@@ -422,7 +422,7 @@ async function applyBucket(actor, bucket) {
  * @param {*} value
  * @returns {string}
  */
-function esc(value) {
+export function esc(value) {
   return foundry.utils.escapeHTML(String(value ?? ""));
 }
 
@@ -432,7 +432,7 @@ function esc(value) {
  * @param {string[]} types
  * @returns {string}
  */
-function typeLabel(types) {
+export function typeLabel(types) {
   if (!types.length) return "";
   return types.map((t) => pf1.registry.damageTypes.get(t)?.name ?? t).join(", ");
 }

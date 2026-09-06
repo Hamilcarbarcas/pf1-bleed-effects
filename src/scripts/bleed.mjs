@@ -508,6 +508,68 @@ async function tickActor(actor) {
   if (lines.length) await postBleedCard(actor, lines);
 }
 
+/* -------------------------------------------- *
+ *  Time jump
+ * -------------------------------------------- */
+
+/**
+ * Roll one round of bleed without applying it.
+ *
+ * The same arithmetic as tickActor: every effect rolls, and only the highest
+ * result of each kind counts. Bleed takes no damage reduction, so a round's
+ * figure is final as rolled.
+ *
+ * @param {Actor} actor
+ * @param {Array<object>} effects - From getEffects, read once by the caller.
+ * @returns {Promise<Map<string, number>>} Damage by kind.
+ */
+export async function rollBleedRound(actor, effects) {
+  const actorRollData = actor.getRollData();
+  const byKind = new Map();
+
+  for (const eff of effects) {
+    const rollData = eff.source?.getRollData() ?? actorRollData;
+    const roll = await pf1.dice.RollPF.safeRoll(eff.formula, rollData);
+    const total = Math.max(0, Math.floor(roll.total || 0));
+    const prev = byKind.get(eff.kind);
+    if (!prev || total > prev) byKind.set(eff.kind, total);
+  }
+
+  return byKind;
+}
+
+/**
+ * Apply bleed totals accumulated across several rounds, as one write per track.
+ *
+ * Mirrors tickActor's application exactly — instance applyDamage for hit points
+ * so temporary hit points are consumed first and no reduction applies, and a
+ * single actor update for ability damage and drain. No card: a time jump reports
+ * every actor together (see dot-timejump.mjs).
+ *
+ * @param {Actor} actor
+ * @param {Map<string, number>|object} totals - Damage by kind.
+ */
+export async function applyBleedTotals(actor, totals) {
+  const entries = totals instanceof Map ? [...totals] : Object.entries(totals ?? {});
+  const abilityUpdates = {};
+
+  for (const [kind, total] of entries) {
+    if (!(total > 0)) continue;
+    const parsed = parseKind(kind);
+    if (!parsed) continue;
+
+    if (parsed.track === "hp") {
+      await actor.applyDamage(total);
+    } else {
+      const path = `system.abilities.${parsed.ability}.${parsed.mode}`;
+      const current = foundry.utils.getProperty(actor, path) ?? 0;
+      abilityUpdates[path] = current + total;
+    }
+  }
+
+  if (Object.keys(abilityUpdates).length) await actor.update(abilityUpdates);
+}
+
 /**
  * Post a chat card summarizing a round of bleed.
  *

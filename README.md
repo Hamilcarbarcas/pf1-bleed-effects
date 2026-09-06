@@ -319,13 +319,46 @@ Nevela's Automation Suite also ships a `burning` condition (as a visual marker, 
 
 Remove the **burning condition** like any other, or let a successful Reflex save do it. The stored save DC is cleared right away. If the burning came from a buff, switch the **buff** off instead — clearing the condition alone won't stick, since the buff just re-supplies it.
 
+## Passing time
+
+Every engine here runs on the combat tracker, so outside combat none of them
+tick. With **astora-mod** installed, advancing the world clock — Simple Calendar,
+the core time controls, the Rest Manager — resolves **bleed** and **damage over
+time** across the elapsed rounds instead of skipping them.
+
+- **A warning first.** Any actor with a live instance is listed before the clock
+  moves, showing what it takes, what it heals, the components those came from,
+  the final hit points, and the round it drops below 0 if it does. The advance
+  blocks until answered, and cancelling moves nothing.
+- **The preview is the result.** What the dialog shows is what gets applied —
+  nothing is re-rolled afterwards.
+- **Healing alone never raises the dialog.** It is listed when the dialog is open
+  for some other reason, but fast healing topping someone up won't interrupt you.
+- **Reduction is per round**, matching what those rounds would have done in
+  combat, so DR 5 blunts each tick rather than the total.
+- **Instances stop when their buff would have expired**, not when the advance
+  ends, so a 2-minute effect over a 10-minute jump ticks for 2 minutes. Bleed has
+  no duration, so it runs until the creature drops or the advance ends — which is
+  usually the point of the warning.
+- **Bleed keeps its own rules** across a jump: highest result per kind each round,
+  no damage reduction, temporary hit points first. Ability damage and drain are
+  totalled and reported, and applied in one write.
+- One `applyDamage` per instance and a single GM-only card for the whole advance,
+  however many rounds elapsed.
+
+**Burning is deliberately not simulated.** It raises a blocking warning naming
+the creature and does nothing even if you continue. It *could* run headless — a
+save-less burning already deals its 1d6 without a click — but the Reflex save
+puts the fire *out*, so rolling it unattended decides how long the creature
+burned. That's a scene, not a calculation. Put it out, then advance.
+
 ## Good to know
 
 - **A GM needs to be logged in** for bleed and burning to be dealt — the GM's client handles it behind the scenes to avoid issues with duplicate applications. Players can still apply either to a target, but the back-end processing is done via the GM client.
 - Bleed **ignores damage reduction and resistances** and pulls from temporary hit points first.
 - **Healing hit points now ends ordinary bleeding automatically** (see [Healing stops it](#healing-stops-it)). The DC 15 Heal check half of the rule is still manual.
 - Burning respects **fire immunity, resistance, and vulnerability** (see above). Both bleed and burning pull from temporary hit points first.
-- Burning ticks only **in combat** (it needs turn structure for the saves); a creature set on fire outside combat takes only the initial 1d6 until combat begins.
+- Burning ticks only **in combat** (it needs turn structure for the saves); a creature set on fire outside combat takes only the initial 1d6 until combat begins, and advancing the clock will warn rather than resolve it (see [Passing time](#passing-time)).
 - **Damage over time is the one that respects everything** — DR, energy resistance, hardness, immunity and vulnerability — because it goes through PF1's own damage pipeline rather than applying a flat number. If you want a recurring effect that a monster's DR can actually blunt, that's the one to reach for; bleed deliberately ignores all of it.
 - **Nevela's Automation Suite composes with damage over time automatically.** Temporary hit point pools, damage absorption, fortification and on-struck reactive triggers all apply to these ticks, with no configuration on either side.
 
