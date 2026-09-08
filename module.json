@@ -46,6 +46,7 @@
     "src/scripts/dot-timejump.mjs"
   ],
   "styles": [
+    "src/common/sheet/kit.css",
     "src/styles/bleed.css",
     "src/styles/burning.css",
     "src/styles/dot.css"

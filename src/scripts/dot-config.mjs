@@ -21,7 +21,7 @@
 
 import { MODULE_ID } from "./dot-common.mjs";
 import { DOT_FLAG, TIMINGS, readInstances, hasPhysicalType } from "./dot.mjs";
-import { makeCollapsible } from "./dot-collapse.mjs";
+import { makeCollapsible } from "../common/sheet/collapse.mjs";
 
 /**
  * De-dup class. Deliberately specific to this feature: a generic name would make our "remove what we

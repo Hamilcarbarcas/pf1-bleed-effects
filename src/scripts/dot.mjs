@@ -389,8 +389,13 @@ async function applyBucket(actor, bucket) {
 
   // Healing skips the reduction machinery entirely — PF1's own pipeline does no DR/ER on a negative
   // value, and there is nothing sensible for hardness or immunity to mean here.
+  //
+  // The source item rides along so pf1-critical-effects' healing suppression can tell what kind of
+  // healing this is: an `ex` regeneration is natural, a supernatural one is not, and PF1's own
+  // ability type on the item is the distinction. Without it every DoT heal is unclassifiable and
+  // fails closed against any suppression, magic-only ones included.
   if (bucket.kind === "healing") {
-    await actor.applyDamage(-bucket.raw);
+    await actor.applyDamage(-bucket.raw, { item: bucket.item });
     return { ...bucket, applied: bucket.raw, reduction: {} };
   }
 

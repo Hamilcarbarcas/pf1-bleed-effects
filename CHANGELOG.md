@@ -9,6 +9,19 @@
 
 ## [Unreleased]
 
+### Changed
+- **Healing that an effect refuses no longer stops bleeding.** pf1-critical-effects' healing
+  suppression (`noHealing` / `noMagicalHealing` / `noNaturalHealing`) turns a heal away before it
+  lands; a cure spell a poison refused hasn't treated the wound, so the bleed stays. Unchanged with
+  that module absent.
+- **A time jump's preview leaves refused healing out of the walk.** Damage and healing interleave
+  against a running hit point total, so healing that won't happen doesn't just overstate the total —
+  it moves the round the creature crosses zero. Both the final hit points and the death round now
+  match what will actually be applied.
+- **Healing over time carries its source item into `applyDamage`**, so suppression can tell an
+  extraordinary regeneration from a supernatural one instead of treating every DoT heal as
+  unclassifiable. A troll keeps regenerating under a magic-only block.
+
 ### Added
 - **Damage over time resolves across a time jump.** Every engine here runs on the combat tracker, so outside combat none of them tick — advance the clock ten minutes and a bleeding creature bleeds none of it. With **astora-mod** installed, moving the world clock now walks the elapsed rounds and applies what they would have done.
   - **You are warned before it happens, and the warning is the result.** Any actor with a live instance is listed before the clock moves: what it takes, what it heals, the components those came from, the final hit points, and the round it drops below 0 if it does. The advance blocks until answered and cancelling moves nothing. What the dialog shows is what gets applied — nothing is re-rolled after the click.

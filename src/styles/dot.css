@@ -29,52 +29,10 @@
   color: inherit;
 }
 
-/* -------------------------------------------- *
- *  Collapsible section chrome
- * -------------------------------------------- */
-
-.bld-collapsible .bld-collapse-header {
-  cursor: pointer;
-  user-select: none;
-}
-
-/* Collapsed: the topical icon + label dim, which is the only state cue. */
-.bld-collapsible .bld-collapse-header,
-.bld-collapsible .bld-collapse-header i {
-  transition: opacity 120ms ease;
-}
-
-.bld-collapsible.bld-collapsed .bld-collapse-header {
-  opacity: 0.55;
-}
-
-.bld-collapsible .bld-collapse-header:hover {
-  opacity: 1;
-}
-
-/* Configured-count badge, pinned to the header's right edge. */
-.bld-collapsible .bld-collapse-badge {
-  flex: 0 0 auto;
-  margin-left: auto;
-  min-width: 1.6em;
-  padding: 0 5px;
-  border-radius: 3px;
-  background: var(--color-underline-header, #782e22);
-  color: #fff;
-  font-size: var(--font-size-11, 11px);
-  font-weight: normal;
-  text-align: center;
-}
 
 /* -------------------------------------------- *
  *  Item-sheet section
  * -------------------------------------------- */
-
-.bld-dot-section .bld-dot-header {
-  display: flex;
-  align-items: center;
-  gap: 0.4em;
-}
 
 .bld-dot-section .bld-dot-header i.fa-hourglass-half {
   color: #7d3c98;

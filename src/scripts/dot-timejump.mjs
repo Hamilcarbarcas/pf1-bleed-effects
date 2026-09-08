@@ -29,6 +29,7 @@ import {
   parseKind,
   rollBleedRound,
 } from "./bleed.mjs";
+import { healingRefusedBy } from "./dot-common.mjs";
 
 const MODULE_ID = "pf1-bleed-effects";
 
@@ -130,7 +131,13 @@ function reductionCached(actor, inst, memo, value) {
  * @returns {Promise<object|null>} Preview, or null when nothing applies.
  */
 export async function previewSpan(actor, rounds, ceiling) {
-  const entries = gather(actor);
+  /* Healing an effect refuses never happens, so it must not be walked either. The walk is not a
+   * summary of the damage — it interleaves, and both the hit point total it ends on and the round
+   * it crosses zero depend on healing that will actually land. Dropped here rather than skipped
+   * inside the loop so a refused regeneration also stops keeping the walk alive. */
+  const entries = gather(actor).filter(
+    (e) => e.inst.kind !== "healing" || !healingRefusedBy(actor, { item: e.item }).length
+  );
   // Bleed is a separate engine with its own storage, and has no duration — it
   // runs until it is healed or cleared, so it never retires the walk on its own.
   const bleeds = getBleedEffects(actor);
@@ -319,7 +326,8 @@ async function commit(preview) {
   for (const bucket of preview.buckets) {
     try {
       if (bucket.entry.inst.kind === "healing") {
-        await actor.applyDamage(-bucket.applied);
+        // Same source item the walk classified this by, so the intercept and the preview agree.
+        await actor.applyDamage(-bucket.applied, { item: bucket.entry.item });
         continue;
       }
       const options = { ...(bucket.options ?? {}), reduction: bucket.reduction };

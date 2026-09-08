@@ -24,7 +24,7 @@
  *    re-supplies it every time the effect list is read. Switch the buff off.
  */
 
-import { MODULE_ID } from "./dot-common.mjs";
+import { MODULE_ID, healingRefusedBy } from "./dot-common.mjs";
 import { BleedAPI, deepStateOf } from "./bleed.mjs";
 
 const SETTING_HEALING = "healingStopsBleed";
@@ -143,6 +143,11 @@ Hooks.on("pf1ApplyDamage", (actor, options) => {
   if (!actor.isOwner) return;
 
   if (!restoresHitPoints(actor, options)) return;
+
+  /* A heal an effect refuses closes nothing. `restoresHitPoints` reads the options and the pool,
+   * which say the healing *would* land — suppression is the separate question of whether it is
+   * allowed to, and a cure spell that a poison turned away has not treated the bleeding. */
+  if (healingRefusedBy(actor, options).length) return;
 
   stopBleeding(actor).catch((err) => console.error(`${MODULE_ID} | Failed to stop bleeding on heal`, err));
 });

@@ -142,6 +142,24 @@ export function dedicatedHealingApi() {
 }
 
 /**
+ * The effects on an actor refusing this application of healing, from pf1-critical-effects'
+ * healing suppression (that module's DESIGN.md §8.2). Empty when nothing refuses it, including
+ * when the module is absent or predates the feature.
+ *
+ * Asked outright rather than read off a marker on the shared `pf1ApplyDamage` options: both
+ * modules listen on that hook and their order is not ours to decide, so a marker may not have been
+ * left yet when we look. The question has no such ordering — it reads the actor's flags.
+ *
+ * @param {Actor} actor
+ * @param {object} options - `applyDamage` options, or `{ item }` for a caller with no application.
+ * @returns {Item[]}
+ */
+export function healingRefusedBy(actor, options = {}) {
+  const api = game.modules.get(CRITICAL_EFFECTS_ID)?.api?.healingBlock;
+  return api?.wouldBlock?.(actor, options) ?? [];
+}
+
+/**
  * Whether the integration is live. Runtime callers only — never during init.
  *
  * Both halves have to agree. pf1-critical-effects carries the same Astora Homebrew switch, and
