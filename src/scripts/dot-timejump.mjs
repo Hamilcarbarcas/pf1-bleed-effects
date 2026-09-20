@@ -18,8 +18,10 @@ import {
   collect,
   esc,
   isVulnerable,
+  nextTickTime,
   reductionFor,
   rollInstance,
+  roundSeconds,
   typeLabel,
 } from "./dot.mjs";
 import {
@@ -125,6 +127,17 @@ function reductionCached(actor, inst, memo, value) {
  * summing them separately answers both questions wrong: fast healing caps at
  * maximum, and the round someone crosses zero depends on the two alternating.
  *
+ * The walk steps from one *tick* to the next rather than round by round, which
+ * is what lets a coarse interval resolve at all: an instance firing once a day
+ * costs seven steps across a week instead of exhausting the ceiling inside the
+ * first half hour. Where everything fires every round — bleed always does — the
+ * steps and the rounds are the same thing and this behaves exactly as it did
+ * before intervals existed.
+ *
+ * The ceiling is therefore spent in steps, not rounds. That keeps its meaning
+ * for the case it was written for (rounds of bleed) while letting a sparse
+ * schedule reach the end of a long advance.
+ *
  * @param {Actor} actor
  * @param {number} rounds
  * @param {number} ceiling
@@ -147,7 +160,7 @@ export async function previewSpan(actor, rounds, ceiling) {
   const maxHp = Number(hp.max) || 0;
   let currentHp = Number(hp.value) || 0;
 
-  const limit = Math.min(rounds, Math.max(1, ceiling));
+  const budget = Math.max(1, ceiling);
 
   /** Per-entry running totals, keyed by the bucket they will be applied through. */
   const totals = new Map();
@@ -160,11 +173,54 @@ export async function previewSpan(actor, rounds, ceiling) {
   let healingDone = 0;
   let deathRound = null;
   let simulated = 0;
+  let stoppedEarly = false;
 
-  for (let round = 1; round <= limit; round++) {
-    let live = bleeds.length;
+  /* The advance hasn't happened yet — the gate collects before it moves the clock — so round `r`
+   * of the walk is the slice ending at `start + r * rs`, and a tick at time `t` belongs to the
+   * round `ceil((t - start) / rs)`. That is the same arithmetic `isDue` uses in combat, so a span
+   * walked here and the same span played out at the table fire on the same rounds. */
+  const rs = roundSeconds();
+  const start = game.time.worldTime;
+  const roundOf = (time) => Math.max(1, Math.ceil((time - start) / rs));
 
-    if (bleeds.length) {
+  /** One cursor per entry: when it next fires, and which round of the walk that is. */
+  const schedules = entries.map((entry) => {
+    const time = nextTickTime(entry.item, entry.inst, start);
+    return { entry, time, round: roundOf(time) };
+  });
+
+  /** Bleed has no interval — it is every round, from the first. */
+  let bleedRound = bleeds.length ? 1 : Infinity;
+
+  for (let steps = 0; ; steps++) {
+    // The next round at which anything at all happens, retiring whatever has outlived its effect.
+    let round = bleedRound;
+    for (const cursor of schedules) {
+      if (cursor.round === null) continue;
+      if (cursor.round > cursor.entry.life) {
+        cursor.round = null; // expired before its next tick came round
+        continue;
+      }
+      if (cursor.round < round) round = cursor.round;
+    }
+
+    if (!Number.isFinite(round)) break; // every instance expired
+
+    if (round > rounds) {
+      // The whole advance was covered, so that — not the round of the last tick — is what was
+      // simulated. With a sparse schedule the two are a long way apart.
+      simulated = rounds;
+      break;
+    }
+
+    if (steps >= budget) {              // the ceiling, spent in ticks
+      stoppedEarly = true;
+      break;
+    }
+
+    simulated = round;
+
+    if (round === bleedRound) {
       const byKind = await rollBleedRound(actor, bleeds);
       for (const [kind, total] of byKind) {
         if (!(total > 0)) continue;
@@ -178,11 +234,17 @@ export async function previewSpan(actor, rounds, ceiling) {
           if (currentHp < 0 && deathRound === null) deathRound = round;
         }
       }
+      bleedRound = round + 1;
     }
 
-    for (const entry of entries) {
-      if (round > entry.life) continue;
-      live++;
+    for (const cursor of schedules) {
+      if (cursor.round !== round) continue;
+      const { entry } = cursor;
+
+      // Advance the cursor before anything can `continue` past it, so a formula that fails to roll
+      // costs one tick rather than wedging the walk on the same round forever.
+      cursor.time = nextTickTime(entry.item, entry.inst, cursor.time);
+      cursor.round = Math.max(round + 1, roundOf(cursor.time));
 
       const roll = await rollInstance(entry.item, entry.inst);
       if (!roll) continue;
@@ -224,9 +286,6 @@ export async function previewSpan(actor, rounds, ceiling) {
       if (currentHp < 0 && deathRound === null) deathRound = round;
     }
 
-    simulated = round;
-
-    if (!live) break;                                   // every instance expired
     if (deathRound !== null) break;                     // stop at the crossing
     if (damageTaken === 0 && currentHp >= maxHp) break; // healed up, nothing hurting
   }
@@ -242,7 +301,7 @@ export async function previewSpan(actor, rounds, ceiling) {
     bleedTotals,
     rounds,
     simulated,
-    truncated: simulated >= limit && rounds > limit,
+    truncated: stoppedEarly && simulated < rounds,
     damageTaken,
     healingDone,
     deathRound,

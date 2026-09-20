@@ -41,6 +41,12 @@ export const DOT_FLAG = "dot";
 /** Timing choices, in the order they're offered on the sheet. */
 export const TIMINGS = /** @type {const} */ (["turnStart", "turnEnd", "initiative"]);
 
+/** Interval units, in the order they're offered on the sheet. */
+export const UNITS = /** @type {const} */ (["round", "minute", "hour", "day"]);
+
+/** Seconds per unit. The round is absent because it's `CONFIG.time.roundTime`, not a constant. */
+const UNIT_SECONDS = { minute: 60, hour: 3600, day: 86400 };
+
 /**
  * Per-combat cursor, so we can tell a forward turn change from a rewind and know who just finished.
  *
@@ -98,6 +104,11 @@ function normalize(id, raw = {}) {
   // instance, energy included, so an acid tick against a construct meets it and needs a way past.
   const ignoreHardness = kind === "healing" ? false : raw.ignoreHardness === true;
 
+  // An absent interval is one round, which is what every instance configured before intervals
+  // existed was doing — so nothing stored changes behaviour by being read through this.
+  const unit = UNITS.includes(raw.unit) ? raw.unit : "round";
+  const every = String(raw.every ?? "").trim() || "1";
+
   return {
     id,
     enabled: raw.enabled !== false,
@@ -107,6 +118,8 @@ function normalize(id, raw = {}) {
     types,
     bypass,
     ignoreHardness,
+    every,
+    unit,
     timing,
     onActivate: raw.onActivate === true,
   };
@@ -173,6 +186,141 @@ function recordedInitiative(item) {
 export function effectiveTiming(item, inst) {
   if (inst.timing !== "initiative") return inst.timing;
   return recordedInitiative(item) === null ? "turnStart" : "initiative";
+}
+
+/* -------------------------------------------- *
+ *  Interval
+ *
+ *  An instance fires every N rounds, minutes, hours or days rather than every round. The unit of
+ *  account is *world time*, not a round counter, for two reasons: it is the only clock that exists
+ *  on both sides of the combat boundary, and it survives a reload, which an in-memory tally would
+ *  not. Combat moves it 6 seconds a round (`Combat#getTimeDelta`), so the two agree.
+ *
+ *  Because PF1 leaves `CONFIG.time.turnTime` at zero, world time only moves when the *round*
+ *  changes — every turn within a round shares one timestamp. That makes the round the atom: an
+ *  interval is due for the whole of the round it falls in, so turn start, turn end and initiative
+ *  all agree about which round that is.
+ * -------------------------------------------- */
+
+/**
+ * Seconds in a combat round.
+ *
+ * @returns {number}
+ */
+export function roundSeconds() {
+  return CONFIG.time.roundTime || 6;
+}
+
+/**
+ * The interval's count, resolved against the item's roll data so `@item.level` scales it the way it
+ * scales a damage formula. Dice are not meaningful in a schedule and are not supported; anything
+ * unusable falls back to 1 rather than stopping the instance from ever firing.
+ *
+ * @param {Item} item
+ * @param {object} inst
+ * @returns {number}
+ */
+function intervalCount(item, inst) {
+  const raw = String(inst.every ?? "").trim();
+  if (!raw) return 1;
+
+  const plain = Number(raw);
+  if (Number.isFinite(plain)) return plain;
+
+  try {
+    const value = Roll.safeEval(Roll.replaceFormulaData(raw, item?.getRollData?.() ?? {}, { missing: 0 }));
+    if (Number.isFinite(value)) return value;
+  } catch (err) {
+    console.error(`${MODULE_ID} | DoT: "${raw}" is not a usable interval on ${item?.name}`, err);
+  }
+  return 1;
+}
+
+/**
+ * How long an instance waits between ticks, in seconds, snapped to a whole number of rounds and
+ * never shorter than one — the round is the smallest slice anything here can fire in.
+ *
+ * @param {Item} item
+ * @param {object} inst
+ * @returns {number}
+ */
+export function intervalSeconds(item, inst) {
+  const rs = roundSeconds();
+  const unit = UNIT_SECONDS[inst.unit] ?? rs;
+  const rounds = Math.round((intervalCount(item, inst) * unit) / rs);
+  return Math.max(1, rounds) * rs;
+}
+
+/**
+ * The moment an interval counts from.
+ *
+ * A buff's Active Effect carries the world time it was switched on at, which is exactly "when this
+ * effect started" and is what a player means by *every hour*. Nothing else records one — an
+ * equipped weapon has no effect to carry it — so those count from the world epoch instead, which
+ * puts their ticks on clean multiples of the interval: every hour, on the hour.
+ *
+ * @param {Item} item
+ * @returns {number}
+ */
+export function anchorTime(item) {
+  for (const ae of item?.effects ?? []) {
+    const start = ae.duration?.startTime;
+    if (Number.isFinite(start)) return start;
+  }
+  return 0;
+}
+
+/**
+ * When an instance next fires after a given moment.
+ *
+ * `k` starts at 1, never 0, which is what makes the first tick land one whole interval after the
+ * effect started rather than the moment it does. "Also when it goes live" is the control for the
+ * other behaviour, and it fires on the event rather than through this schedule.
+ *
+ * @param {Item} item
+ * @param {object} inst
+ * @param {number} after - World time, exclusive.
+ * @returns {number}
+ */
+export function nextTickTime(item, inst, after) {
+  const period = intervalSeconds(item, inst);
+
+  // One round is the default, and it isn't a schedule at all — every round is its round. Anchoring
+  // it would make a buff switched on partway through a round miss that round, which is a change to
+  // how every instance configured before intervals existed behaves, and it would mean a formula
+  // resolving to 1 round quietly differing from the same instance left at its default.
+  const rs = roundSeconds();
+  if (period <= rs) return after + rs;
+
+  const anchor = anchorTime(item);
+  const k = Math.max(1, Math.floor((after - anchor) / period) + 1);
+  return anchor + k * period;
+}
+
+/**
+ * Whether an instance's interval falls inside the round ending at `now`.
+ *
+ * @param {Item} item
+ * @param {object} inst
+ * @param {number} [now] - World time at the end of the round in question.
+ * @returns {boolean}
+ */
+export function isDue(item, inst, now = game.time.worldTime) {
+  return nextTickTime(item, inst, now - roundSeconds()) <= now;
+}
+
+/**
+ * Narrow collected entries to the ones whose interval comes round in this slice.
+ *
+ * Kept separate from `collect()` so that `trigger()` and the time-jump walk — which ask "what is
+ * configured here" rather than "what is due now" — are unaffected by it.
+ *
+ * @param {Array<{item:Item, inst:object}>} entries
+ * @param {number} now
+ * @returns {Array<{item:Item, inst:object}>}
+ */
+export function dueNow(entries, now) {
+  return entries.filter(({ item, inst }) => isDue(item, inst, now));
 }
 
 /**
@@ -542,11 +690,12 @@ async function tick(actor, entries) {
  *
  * @param {Combatant|null} combatant
  * @param {string} timing
+ * @param {number} now - World time of the round this tick belongs to.
  */
-async function tickCombatant(combatant, timing) {
+async function tickCombatant(combatant, timing, now) {
   const actor = combatant?.actor;
   if (!actor || combatant.isDefeated) return;
-  await tick(actor, collect(actor, timing));
+  await tick(actor, dueNow(collect(actor, timing), now));
 }
 
 /**
@@ -559,8 +708,9 @@ async function tickCombatant(combatant, timing) {
  * the order also satisfies it, hence the guard.
  *
  * @param {Combat} combat
+ * @param {number} now - World time of the round this tick belongs to.
  */
-async function tickInitiative(combat) {
+async function tickInitiative(combat, now) {
   const current = combat.combatant?.initiative;
   if (!Number.isFinite(current)) return;
 
@@ -575,7 +725,7 @@ async function tickInitiative(combat) {
     if (!actor || combatant.isDefeated) continue;
 
     const due = [];
-    for (const entry of collect(actor, "initiative")) {
+    for (const entry of dueNow(collect(actor, "initiative"), now)) {
       const recorded = recordedInitiative(entry.item);
       if (recorded === null || current > recorded) continue;
 
@@ -590,6 +740,26 @@ async function tickInitiative(combat) {
 }
 
 /**
+ * How far this combat update moves the world clock.
+ *
+ * Foundry v13 carries it as `worldTime.delta`, earlier versions as `advanceTime`. The clock itself
+ * is moved by the server in a separate write, so `game.time.worldTime` may or may not have caught
+ * up by the time this hook runs — PF1 caches it for the same reason (combat.mjs, `_onUpdate`).
+ *
+ * Adding the delta is right when it hasn't, and one round early when it has. Either way the offset
+ * is the same on every round of a combat, so an interval still fires once per period; the cost is
+ * at most a six-second phase shift, never a missed or doubled tick. The same is true of an
+ * unrecognized option shape, which reads as zero.
+ *
+ * @param {object} options
+ * @returns {number}
+ */
+function worldTimeDelta(options) {
+  const delta = options?.worldTime?.delta ?? options?.advanceTime;
+  return Number.isFinite(delta) ? delta : 0;
+}
+
+/**
  * `updateCombat` handler — the only scheduled entry point.
  *
  * Turn boundaries are the only clock a DoT has, so nothing ticks outside combat. Order matches the
@@ -597,11 +767,19 @@ async function tickInitiative(combat) {
  *
  * @param {Combat} combat
  * @param {object} changed
+ * @param {object} [options]
  */
-async function onUpdateCombat(combat, changed) {
+async function onUpdateCombat(combat, changed, options) {
   if (!isActiveGM()) return; // exactly one executor
   if (!combat.started) return;
   if (changed.round === undefined && changed.turn === undefined) return;
+
+  // The round this update moves *into*, and the one it leaves. They differ only when the round
+  // rolled over, which is the only thing that moves the clock — so a turn-end tick is judged
+  // against the round it actually happened in rather than the one just starting.
+  const delta = worldTimeDelta(options);
+  const ending = game.time.worldTime;
+  const now = ending + delta;
 
   const previous = cursors.get(combat.id);
   const position = { round: combat.round, turn: combat.turn, combatantId: combat.combatant?.id ?? null };
@@ -614,11 +792,11 @@ async function onUpdateCombat(combat, changed) {
       (position.round === previous.round && position.turn > previous.turn);
     if (!forward) return;
 
-    await tickCombatant(combat.combatants.get(previous.combatantId) ?? null, "turnEnd");
+    await tickCombatant(combat.combatants.get(previous.combatantId) ?? null, "turnEnd", ending);
   }
 
-  await tickCombatant(combat.combatant ?? null, "turnStart");
-  await tickInitiative(combat);
+  await tickCombatant(combat.combatant ?? null, "turnStart", now);
+  await tickInitiative(combat, now);
 }
 
 /** Forget a combat's bookkeeping when it ends. */
@@ -698,8 +876,30 @@ export const DotAPI = {
   isLive: (ref) => isLive(resolveItem(ref)),
 
   /**
-   * Roll and apply every instance on an actor matching a timing, right now. Intended for macros and
-   * for testing a configuration without waiting for the turn to come round.
+   * What an item's instances are scheduled to do: how far apart their ticks are, when the interval
+   * counts from, and when each one next comes due. For checking a configuration by hand.
+   *
+   * @param {Item|string} ref
+   * @returns {object[]}
+   */
+  schedule: (ref) => {
+    const item = resolveItem(ref);
+    const now = game.time.worldTime;
+    return readInstances(item).map((inst) => ({
+      id: inst.id,
+      label: inst.label,
+      every: `${inst.every} ${inst.unit}`,
+      rounds: intervalSeconds(item, inst) / roundSeconds(),
+      anchor: anchorTime(item),
+      next: nextTickTime(item, inst, now),
+      dueNow: isDue(item, inst, now),
+    }));
+  },
+
+  /**
+   * Roll and apply every instance on an actor matching a timing, right now — the interval is
+   * deliberately ignored, since the point is to see a configuration resolve without waiting for it.
+   * Intended for macros and for testing.
    *
    * @param {Actor|Token|TokenDocument|string} target
    * @param {string} [timing]

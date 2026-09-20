@@ -20,7 +20,7 @@
  */
 
 import { MODULE_ID } from "./dot-common.mjs";
-import { DOT_FLAG, TIMINGS, readInstances, hasPhysicalType } from "./dot.mjs";
+import { DOT_FLAG, TIMINGS, UNITS, readInstances, hasPhysicalType } from "./dot.mjs";
 import { makeCollapsible } from "../common/sheet/collapse.mjs";
 
 /**
@@ -113,6 +113,11 @@ async function instancePanel(inst, index) {
       `<option value="${t}"${inst.timing === t ? " selected" : ""}>${game.i18n.localize(`BLD.DoT.Timing.${t}`)}</option>`
   ).join("");
 
+  const unitOptions = UNITS.map(
+    (u) =>
+      `<option value="${u}"${inst.unit === u ? " selected" : ""}>${game.i18n.localize(`BLD.DoT.Unit.${u}`)}</option>`
+  ).join("");
+
   const bypass = bypassChoices()
     .map(
       (choice) => `<label class="checkbox bld-dot-chip">
@@ -140,7 +145,7 @@ async function instancePanel(inst, index) {
       <div class="form-fields">
         <input type="text" data-dot="formula" value="${esc(inst.formula)}"
                placeholder="${esc(game.i18n.localize("BLD.Buff.FormulaPlaceholder"))}" autocomplete="off" />
-        <span class="bld-dot-preview"></span>
+        <span class="bld-dot-preview bld-dot-formula-preview"></span>
         <select data-dot="kind">
           <option value="damage"${healing ? "" : " selected"}>${game.i18n.localize("BLD.DoT.KindDamage")}</option>
           <option value="healing"${healing ? " selected" : ""}>${game.i18n.localize("BLD.DoT.KindHealing")}</option>
@@ -188,6 +193,17 @@ async function instancePanel(inst, index) {
       <p class="hint">${game.i18n.localize("BLD.DoT.IgnoreHardnessHint")}</p>
     </div>`
     }
+
+    <div class="form-group bld-dot-interval-row">
+      <label>${game.i18n.localize("BLD.DoT.IntervalLabel")}</label>
+      <div class="form-fields">
+        <input type="text" class="bld-dot-every" data-dot="every" value="${esc(inst.every)}"
+               placeholder="1" autocomplete="off" />
+        <span class="bld-dot-preview bld-dot-every-preview"></span>
+        <select data-dot="unit">${unitOptions}</select>
+      </div>
+      <p class="hint">${game.i18n.localize("BLD.DoT.IntervalHint")}</p>
+    </div>
 
     <div class="form-group">
       <label>${game.i18n.localize("BLD.DoT.TimingLabel")}</label>
@@ -254,6 +270,45 @@ async function buildSection(item) {
  * -------------------------------------------- */
 
 /**
+ * Show a formula's resolved value beside the input that holds it, refreshed on every keystroke.
+ *
+ * Only shown for formulas carrying an `@` reference: a plain number already reads as its own value,
+ * and `2 = 2` beside every unremarkable field is noise. Where the expression contains dice there is
+ * no single value to show, so the substituted form is the readout instead.
+ *
+ * @param {HTMLElement} row
+ * @param {string} inputSelector
+ * @param {string} previewSelector
+ * @param {object} rollData
+ */
+function livePreview(row, inputSelector, previewSelector, rollData) {
+  const input = row.querySelector(inputSelector);
+  const preview = row.querySelector(previewSelector);
+  if (!input || !preview) return;
+
+  const refresh = () => {
+    const formula = String(input.value ?? "").trim();
+    if (!/@/.test(formula)) {
+      preview.textContent = "";
+      return;
+    }
+    let out = "?";
+    try {
+      const resolved = Roll.replaceFormulaData(formula, rollData, { missing: 0 });
+      out = resolved;
+      const value = Roll.safeEval(resolved);
+      if (Number.isFinite(value)) out = String(value);
+    } catch (_) {
+      // Dice in the formula — the substituted form is the useful readout.
+    }
+    preview.textContent = `= ${out}`;
+  };
+
+  refresh();
+  input.addEventListener("input", refresh);
+}
+
+/**
  * Attach behaviour to a freshly-built section.
  *
  * @param {Application} app
@@ -305,6 +360,8 @@ function wire(app, item, section) {
           formula: "",
           types: [],
           bypass: [],
+          every: "1",
+          unit: "round",
           timing: "turnEnd",
           onActivate: false,
         },
@@ -369,30 +426,10 @@ function wire(app, item, section) {
       });
     }
 
-    // Live formula preview, per keystroke.
-    const input = row.querySelector('[data-dot="formula"]');
-    const preview = row.querySelector(".bld-dot-preview");
-    if (input && preview) {
-      const refresh = () => {
-        const formula = String(input.value ?? "").trim();
-        if (!/@/.test(formula)) {
-          preview.textContent = "";
-          return;
-        }
-        let out = "?";
-        try {
-          const resolved = Roll.replaceFormulaData(formula, rollData, { missing: 0 });
-          out = resolved;
-          const value = Roll.safeEval(resolved);
-          if (Number.isFinite(value)) out = String(value);
-        } catch (_) {
-          // Dice in the formula — the substituted form is the useful readout.
-        }
-        preview.textContent = `= ${out}`;
-      };
-      refresh();
-      input.addEventListener("input", refresh);
-    }
+    // Live previews, per keystroke — on the damage formula and on the interval alike, since both
+    // take `@` references and both are easier to get right with the resolved value in view.
+    livePreview(row, '[data-dot="formula"]', ".bld-dot-formula-preview", rollData);
+    livePreview(row, '[data-dot="every"]', ".bld-dot-every-preview", rollData);
 
     // Delete.
     row.querySelector(".bld-dot-delete")?.addEventListener("click", async (event) => {

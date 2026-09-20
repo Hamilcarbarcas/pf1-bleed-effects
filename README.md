@@ -131,6 +131,7 @@ The damage always lands on the creature **carrying** the item. This is for curse
 - **Damage Type** — the system's own damage-type picker, the same one an action's damage parts use.
 - **Counts As** — material and alignment penetration; only shown for physical damage. See below.
 - **Ignores → Hardness** — skip the target's hardness entirely.
+- **Every** — how often it fires: a number of rounds, minutes, hours or days. Defaults to every round. See [How often it fires](#how-often-it-fires).
 - **Applies On** — turn start, turn end, or an initiative count.
 - **Also when it goes live** — off by default; see [Ticking on activation](#ticking-on-activation).
 
@@ -157,6 +158,18 @@ Two more things worth knowing:
 - **Vulnerability is applied automatically** (+50%, rounded down). PF1's own dialog leaves that box unticked and waits for a human to notice; a tick has no human to ask.
 
 Damage typed as **nonlethal** is applied as nonlethal damage.
+
+### How often it fires
+
+**Every** sets the interval: a count, and a unit of **rounds**, **minutes**, **hours** or **days**. Left alone it's every round, which is what every instance did before this existed.
+
+The count takes a formula, so `@item.level` scales a schedule the way it scales damage, and a live preview shows the resolved value as you type. Dice aren't supported — a schedule that rerolls its own spacing isn't a useful thing — and anything unusable falls back to one round rather than leaving the instance unable to fire at all.
+
+**The interval and Applies On are different questions.** The interval picks *which* round fires; Applies On picks *where in that round*. "Every 1 minute, at turn end" is the carrier's turn end, once every ten rounds.
+
+**It counts from when the effect started.** A buff records the moment it was switched on, so an hourly tick on a buff switched on at 12:20 fires at 13:20. Items that record nothing — an equipped weapon, a feat — count from the world clock instead, so theirs land on the hour. Either way the first tick is a full interval in, not immediately; **Also when it goes live** is there for an opening hit.
+
+**Long intervals need the clock to move, not the initiative tracker.** An hour is 600 rounds and a day is 14,400, so neither will ever come round in a real fight. They resolve when time passes outside combat — see [Passing time](#passing-time) — which needs **astora-mod** installed. Rounds and short minute intervals work in combat as you'd expect.
 
 ### When it fires
 
@@ -201,7 +214,12 @@ pf1DamageOverTime.list(item);
 // Is it live on its actor right now?
 pf1DamageOverTime.isLive(item);
 
-// Fire a timing on demand, without waiting for the turn to come round
+// What each instance is scheduled to do: interval in rounds, what it counts from,
+// when it next comes due, and whether it's due in this round
+pf1DamageOverTime.schedule(item);
+
+// Fire a timing on demand, without waiting for the turn to come round.
+// The interval is ignored, so a daily instance resolves immediately
 await pf1DamageOverTime.trigger(token, "turnEnd");
 ```
 
@@ -343,6 +361,11 @@ time** across the elapsed rounds instead of skipping them.
 - **Bleed keeps its own rules** across a jump: highest result per kind each round,
   no damage reduction, temporary hit points first. Ability damage and drain are
   totalled and reported, and applied in one write.
+- **Long intervals are resolved properly.** The simulation steps from one tick to
+  the next rather than round by round, so an instance set to fire once a day gets
+  its seven ticks across a week instead of running out of simulation budget
+  inside the first half hour. Anything firing every round behaves exactly as it
+  did before.
 - One `applyDamage` per instance and a single GM-only card for the whole advance,
   however many rounds elapsed.
 

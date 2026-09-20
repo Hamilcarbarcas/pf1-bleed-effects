@@ -140,6 +140,15 @@
   white-space: nowrap;
 }
 
+/* The interval count is a short field; the unit dropdown beside it takes the room. */
+.bld-dot-panel .bld-dot-every {
+  flex: 0 1 5em;
+}
+
+.bld-dot-panel .bld-dot-interval-row select {
+  flex: 0 1 8em;
+}
+
 /* The damage-type chips, borrowed from the action sheet, made obviously clickable. */
 .bld-dot-panel .bld-dot-types {
   display: block;
