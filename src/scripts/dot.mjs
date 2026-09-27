@@ -33,7 +33,7 @@
  * the message content has no child elements, so our card renders instead of a dice tray.
  */
 
-import { MODULE_ID, resolveActor, isActiveGM } from "./dot-common.mjs";
+import { MODULE_ID, resolveActor, isActiveGM, groupTurnKind } from "./dot-common.mjs";
 
 /** Item flag holding the DoT configuration: `{ instances: { <id>: {...} } }`. */
 export const DOT_FLAG = "dot";
@@ -785,6 +785,12 @@ async function onUpdateCombat(combat, changed, options) {
   const position = { round: combat.round, turn: combat.turn, combatantId: combat.combatant?.id ?? null };
   cursors.set(combat.id, position);
 
+  // Grouped initiative (astora): a reorder only moves the cursor. A walk step starts the new
+  // member's turn but ends nobody's — the member left behind ends with the group, through
+  // `onGroupTurnEnd` below.
+  const groupKind = groupTurnKind(options);
+  if (groupKind === "reanchor") return;
+
   // Rewinding the tracker, or re-reading a position we already processed, must not deal damage.
   if (previous) {
     const forward =
@@ -792,11 +798,34 @@ async function onUpdateCombat(combat, changed, options) {
       (position.round === previous.round && position.turn > previous.turn);
     if (!forward) return;
 
-    await tickCombatant(combat.combatants.get(previous.combatantId) ?? null, "turnEnd", ending);
+    if (groupKind !== "walk") {
+      await tickCombatant(combat.combatants.get(previous.combatantId) ?? null, "turnEnd", ending);
+    }
   }
 
   await tickCombatant(combat.combatant ?? null, "turnStart", now);
   await tickInitiative(combat, now);
+}
+
+/**
+ * `astoraGroupTurnEnd` handler: grouped initiative ended a group's turn.
+ *
+ * The ordinary cursor path above already ticks the participant the pointer was parked on (it
+ * is `combat.previous`); every other participant's `turnEnd` is ticked here. Judged against the
+ * current clock, the same as the cursor path's `ending`.
+ *
+ * @param {Combat} combat
+ * @param {Combatant[]} participants
+ */
+async function onGroupTurnEnd(combat, participants) {
+  if (!isActiveGM()) return;
+  if (!combat?.started) return;
+  const parked = combat.previous?.combatantId ?? null;
+  const ending = game.time.worldTime;
+  for (const combatant of participants ?? []) {
+    if (combatant?.id === parked) continue;
+    await tickCombatant(combatant, "turnEnd", ending);
+  }
 }
 
 /** Forget a combat's bookkeeping when it ends. */
@@ -926,6 +955,8 @@ Hooks.once("init", () => {
 });
 
 Hooks.on("updateCombat", onUpdateCombat);
+// Fired only by astora-mod's grouped initiative; inert without it.
+Hooks.on("astoraGroupTurnEnd", onGroupTurnEnd);
 Hooks.on("deleteCombat", onDeleteCombat);
 
 Hooks.on("updateItem", (item, changed) => {

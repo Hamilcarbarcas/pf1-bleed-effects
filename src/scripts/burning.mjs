@@ -48,6 +48,7 @@ import {
   isActiveGM,
   getConditionSourceEffects,
   getConditionSourceItems,
+  groupTurnKind,
 } from "./dot-common.mjs";
 
 const CONDITION_ID = "burning";
@@ -753,18 +754,28 @@ async function postResult(actor, result, dealtKey, resistedKey, kind) {
  * @param {Combat} combat
  * @param {object} changed
  */
-async function onUpdateCombat(combat, changed) {
+async function onUpdateCombat(combat, changed, options) {
   if (!isActiveGM()) return; // exactly one executor
   if (!combat.started) return;
   if (changed.round === undefined && changed.turn === undefined) return;
 
   const key = `${combat.id}:${combat.round}:${combat.turn}`;
+  const groupKind = groupTurnKind(options);
+
+  // A grouped-initiative reorder is not a turn change: record the position, nothing else.
+  if (groupKind === "reanchor") {
+    lastTickKey = key;
+    return;
+  }
+
   if (key === lastTickKey) return;
   lastTickKey = key;
 
   // End-of-turn fallback for whoever was burning last turn, before we prompt
-  // the actor whose turn is now starting.
-  await finalizePendingSaves(combat);
+  // the actor whose turn is now starting. Not on a grouped-initiative walk step:
+  // the member left behind is still mid-turn, and every member's pending save is
+  // finalized together by the ordinary turn change that ends the group's turn.
+  if (groupKind !== "walk") await finalizePendingSaves(combat);
 
   const combatant = combat.combatant;
   const actor = combatant?.actor;

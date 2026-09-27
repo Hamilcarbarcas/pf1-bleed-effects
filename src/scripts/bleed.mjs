@@ -33,6 +33,7 @@ import {
   deepBleedEnabled,
   getConditionSourceItems,
   getActorConditionEffect,
+  groupTurnKind,
 } from "./dot-common.mjs";
 
 export { MODULE_ID };
@@ -591,17 +592,26 @@ async function postBleedCard(actor, lines) {
  * @param {Combat} combat
  * @param {object} changed
  */
-function onUpdateCombat(combat, changed) {
+function onUpdateCombat(combat, changed, options) {
   if (!isActiveGM()) return; // exactly one executor
   if (!combat.started) return;
   if (changed.round === undefined && changed.turn === undefined) return;
+
+  const key = `${combat.id}:${combat.round}:${combat.turn}`;
+
+  // A grouped-initiative reorder moves the index without changing whose turn it is. Record
+  // the new position so a later update landing on it doesn't tick again. A walk step is a
+  // real turn start and ticks as usual.
+  if (groupTurnKind(options) === "reanchor") {
+    lastTickKey = key;
+    return;
+  }
 
   const combatant = combat.combatant;
   const actor = combatant?.actor;
   if (!actor) return;
   if (combatant.isDefeated) return;
 
-  const key = `${combat.id}:${combat.round}:${combat.turn}`;
   if (key === lastTickKey) return;
   lastTickKey = key;
 

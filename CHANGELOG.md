@@ -10,6 +10,7 @@
 ## [Unreleased]
 
 ### Changed
+- **Compatible with astora-mod's grouped initiative.** A group's turn starts by stepping the tracker through each member, which used to read as a string of ordinary turn changes: members took their turn-end damage over time, and their unrolled burning saves were finalized, while the group's turn was still starting. Now each member still gets its start-of-turn bleed, burning save and damage over time, but its turn end waits for the group's. A tracker reorder that keeps the same combatant current no longer ticks bleed or burning a second time. Without astora-mod nothing changes.
 - **Healing that an effect refuses no longer stops bleeding.** pf1-critical-effects' healing
   suppression (`noHealing` / `noMagicalHealing` / `noNaturalHealing`) turns a heal away before it
   lands; a cure spell a poison refused hasn't treated the wound, so the bleed stays. Unchanged with

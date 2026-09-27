@@ -37,6 +37,27 @@ export function isActiveGM() {
   return game.user === game.users.activeGM;
 }
 
+/**
+ * What kind of turn change an `updateCombat` is, under astora-mod's grouped initiative.
+ * Compatibility only; without astora every update reads as an ordinary one.
+ *
+ * - "walk": a real turn START for the newly current member, but not a turn END for the one
+ *   left behind. That end arrives with the group's end (`astoraGroupTurnEnd`).
+ * - "reanchor": a tracker reorder that keeps the same combatant current. Not a turn change.
+ *
+ * See DESIGN-DOT.md, "Grouped initiative (astora)".
+ *
+ * @param {object} options - The `updateCombat` options.
+ * @returns {"walk"|"reanchor"|null}
+ */
+export function groupTurnKind(options) {
+  const api = game.astoraMod?.groupInitiative;
+  if (!api) return null;
+  if (api.isReanchor?.(options)) return "reanchor";
+  if (api.isWalkStep?.(options)) return "walk";
+  return null;
+}
+
 /* -------------------------------------------- *
  *  Condition sourcing
  *

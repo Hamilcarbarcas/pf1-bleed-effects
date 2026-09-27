@@ -384,6 +384,7 @@ burned. That's a scene, not a calculation. Put it out, then advance.
 - Burning ticks only **in combat** (it needs turn structure for the saves); a creature set on fire outside combat takes only the initial 1d6 until combat begins, and advancing the clock will warn rather than resolve it (see [Passing time](#passing-time)).
 - **Damage over time is the one that respects everything** — DR, energy resistance, hardness, immunity and vulnerability — because it goes through PF1's own damage pipeline rather than applying a flat number. If you want a recurring effect that a monster's DR can actually blunt, that's the one to reach for; bleed deliberately ignores all of it.
 - **Nevela's Automation Suite composes with damage over time automatically.** Temporary hit point pools, damage absorption, fortification and on-struck reactive triggers all apply to these ticks, with no configuration on either side.
+- **Astora's grouped initiative is understood.** When summons or companions share their leader's turn, each member bleeds, burns and takes damage over time at the start of the group's turn. A turn-end tick, or an unrolled burning save, lands when the group's turn ends, not while the group's turn is still starting. Nothing changes without astora-mod.
 
 
 ## API
