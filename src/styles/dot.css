@@ -66,8 +66,27 @@
   font-size: var(--font-size-12, 12px);
   cursor: pointer;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+}
+
+/* The label truncates, not the tab, so the delete icon is never clipped. */
+.bld-dot-section .bld-dot-tab-label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.bld-dot-section .bld-dot-tab-delete {
+  flex: 0 0 auto;
+  font-size: 0.85em;
+  opacity: 0.4;
+}
+
+.bld-dot-section .bld-dot-tab-delete:hover {
+  opacity: 1;
+  color: var(--color-level-error, #b60000);
 }
 
 .bld-dot-section .bld-dot-tab.active {
@@ -100,22 +119,6 @@
 
 .bld-dot-panel .form-group {
   margin: 0.15em 0;
-}
-
-.bld-dot-panel .bld-dot-panel-actions {
-  justify-content: flex-end;
-}
-
-.bld-dot-panel .bld-dot-delete {
-  flex: 0 0 auto;
-  color: #7a2e2e;
-  font-size: var(--font-size-12, 12px);
-  opacity: 0.75;
-}
-
-.bld-dot-panel .bld-dot-delete:hover {
-  opacity: 1;
-  color: var(--color-level-error, #b60000);
 }
 
 .bld-dot-panel .bld-dot-enable {

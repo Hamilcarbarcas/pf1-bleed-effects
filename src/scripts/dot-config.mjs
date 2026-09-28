@@ -216,10 +216,6 @@ async function instancePanel(inst, index) {
       </div>
       <p class="hint">${game.i18n.localize("BLD.DoT.TimingHint")}</p>
     </div>
-
-    <div class="form-group bld-dot-panel-actions">
-      <a class="bld-dot-delete"><i class="fas fa-trash"></i> ${game.i18n.localize("BLD.DoT.Delete")}</a>
-    </div>
   </div>`;
 }
 
@@ -240,6 +236,7 @@ async function buildSection(item) {
       (inst, i) => `<a class="bld-dot-tab${inst.enabled ? "" : " bld-dot-tab-disabled"}"
            data-instance-id="${esc(inst.id)}">
         <span class="bld-dot-tab-label">${esc(instanceLabel(inst, i))}</span>
+        <i class="fas fa-trash bld-dot-tab-delete" data-tooltip="${esc(game.i18n.localize("BLD.DoT.Delete"))}"></i>
       </a>`
     )
     .join("");
@@ -431,8 +428,8 @@ function wire(app, item, section) {
     livePreview(row, '[data-dot="formula"]', ".bld-dot-formula-preview", rollData);
     livePreview(row, '[data-dot="every"]', ".bld-dot-every-preview", rollData);
 
-    // Delete.
-    row.querySelector(".bld-dot-delete")?.addEventListener("click", async (event) => {
+    // Delete, from the tab's own icon. stopPropagation keeps the tab from also switching to it.
+    tab?.querySelector(".bld-dot-tab-delete")?.addEventListener("click", async (event) => {
       event.preventDefault();
       event.stopPropagation();
       const label = inst.label || game.i18n.format("BLD.DoT.InstanceN", { n: index + 1 });

@@ -10,6 +10,8 @@
 ## [Unreleased]
 
 ### Changed
+- **Damage Over Time instances are deleted from their tab.** Each instance's tab carries a trash icon, which asks for confirmation as before; the *Delete instance* link at the bottom of the panel is gone.
+- **The Damage Over Time section keeps its place on the Advanced tab.** Sections added by modules sharing the same sheet kit now sort alphabetically below Script Calls, instead of in whichever order their render hooks finished — which could change every time the sheet redrew.
 - **Compatible with astora-mod's grouped initiative.** A group's turn starts by stepping the tracker through each member, which used to read as a string of ordinary turn changes: members took their turn-end damage over time, and their unrolled burning saves were finalized, while the group's turn was still starting. Now each member still gets its start-of-turn bleed, burning save and damage over time, but its turn end waits for the group's. A tracker reorder that keeps the same combatant current no longer ticks bleed or burning a second time. Without astora-mod nothing changes.
 - **Healing that an effect refuses no longer stops bleeding.** pf1-critical-effects' healing
   suppression (`noHealing` / `noMagicalHealing` / `noNaturalHealing`) turns a heal away before it
