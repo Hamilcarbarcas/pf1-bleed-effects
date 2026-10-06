@@ -91,6 +91,9 @@
   - **Both modules' switches must agree** for a deep bleed to be inflicted. pf1-critical-effects' dedicated healing is the mechanism the rule rests on, so with its homebrew off a deep bleed would be a wound nothing in the game could close. Turning on only one of the two now warns the GM at startup rather than silently downgrading every deep bleed to an ordinary one.
 
 ### Fixed
+- **Adding or changing an entry in a sheet section no longer jumps the sheet back to the top of
+  the tab.** Sections from the shared sheet kit now restore the scroll position once they have
+  drawn.
 - **Switching on a buff that supplies the bleed condition popped the manual-application dialog.** A buff's condition lives on an Active Effect attached to the *item*, but its creation bubbles up to the actor, so PF1 reports the condition as having been toggled on exactly as a hand-application does. Anything typed into that dialog was then written to the actor and outlived the buff that prompted it. Conditions arriving from an item are now skipped.
 - **A buff's bleed condition ending could wipe unrelated bleeds.** The same bubbling fires a toggle-*off* when the buff's effect is deleted, and the handler cleared everything stored on the actor without asking where the toggle came from.
 - **Stored bleed could be lost when a buff supplying the condition ended.** The condition marker was created or dropped based on `actor.statuses`, which a buff satisfies on its own — so while one was running the module never created a marker of its own, and the moment the buff ended the condition vanished with it. The next turn's tick read the missing marker as "cleared by hand" and deleted the bleeds. The marker is now tracked as an actor-level effect specifically, independent of anything a buff contributes.

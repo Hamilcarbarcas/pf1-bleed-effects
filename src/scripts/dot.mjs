@@ -18,13 +18,10 @@
  * computes immunities, DR, energy resistance and hardness, and then `_getTargetDamageOptions()`
  * hands back exactly the options the dialog itself would have applied. See `reductionFor()`.
  *
- * **Nevela's Automation Suite composes with this for free.** It libWraps both
- * `ActorPF.prototype.applyDamage` and `ApplyDamage.prototype._getTargetDamageOptions`, and uses this
- * same headless technique internally. Because we go through both, our ticks pick up its temporary-HP
- * pools, damage absorption, fortification and on-struck triggers with no integration code, and its
- * `_nasDamageDialog` marker (stamped by its own wrapper) tells it DR is already accounted for.
- * Passing a bare value and hoping it computes DR/ER for us does *not* work — its DR helpers all bail
- * unless `reduction` is already non-zero, or require a click context we don't have.
+ * **Other damage modules compose with this.** A module wrapping `ActorPF.prototype.applyDamage` or
+ * `ApplyDamage.prototype._getTargetDamageOptions` sees our ticks go through both, with `reduction`
+ * already set — the usual sign that DR/ER has been accounted for, so it applies its own extras
+ * without reducing the tick a second time.
  *
  * **Dice animate because the message carries the rolls.** Attaching evaluated `DamageRoll`s to the
  * ChatMessage is the whole of the Dice So Nice integration: DSN animates any message with rolls, and
@@ -456,8 +453,8 @@ export function reductionFor(actor, value, instances, bypass, ignoreHardness = f
     }
 
     // Strip the dialog's UI-context flags — nothing about this application was interactive, and
-    // other modules key behaviour off them. Everything else (including Nevela's `_nasDamageDialog`
-    // marker, stamped by its own wrapper on the call above) is passed through untouched.
+    // other modules key behavior off them. Everything else — including any marker another module's
+    // wrapper stamped on the call above — is passed through untouched.
     const { interactive, dialog, element, event, message, ...options } = app._getTargetDamageOptions(target);
 
     return { options, reduction: target.reduction ?? {} };
