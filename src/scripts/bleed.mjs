@@ -34,6 +34,7 @@ import {
   getConditionSourceItems,
   getActorConditionEffect,
   groupTurnKind,
+  cardWhisper,
 } from "./dot-common.mjs";
 
 export { MODULE_ID };
@@ -583,7 +584,7 @@ async function postBleedCard(actor, lines) {
     <p><i class="fa-solid fa-droplet"></i> ${suffers}</p>
     <ul>${lines.map((l) => `<li>${l}</li>`).join("")}</ul>
   </div>`;
-  await ChatMessage.create({ content, speaker: ChatMessage.getSpeaker({ actor }) });
+  await ChatMessage.create({ content, speaker: ChatMessage.getSpeaker({ actor }), whisper: cardWhisper(actor) });
 }
 
 /**

@@ -38,6 +38,37 @@ export function isActiveGM() {
 }
 
 /**
+ * World setting: whisper every bleed, burning and damage-over-time card to the creature's owners
+ * and the GMs instead of posting it. Registered in dot.mjs.
+ */
+export const SETTING_PRIVATE_CARDS = "privateCards";
+
+/**
+ * Ids of every user owning an actor, GMs included, for whispering a card to just them.
+ *
+ * Offline owners are kept, so the card is waiting when they log in. `testUserPermission` already
+ * answers true for a GM, so no separate GM list is merged in.
+ *
+ * @param {Actor} actor
+ * @returns {string[]}
+ */
+export function ownerRecipients(actor) {
+  if (!actor) return [];
+  return game.users.filter((u) => actor.testUserPermission(u, "OWNER")).map((u) => u.id);
+}
+
+/**
+ * The `whisper` list for a card about an actor: its owners under the private-cards setting, empty
+ * (public) otherwise. Dice So Nice honors it, so only recipients see the dice.
+ *
+ * @param {Actor} actor
+ * @returns {string[]}
+ */
+export function cardWhisper(actor) {
+  return game.settings.get(MODULE_ID, SETTING_PRIVATE_CARDS) ? ownerRecipients(actor) : [];
+}
+
+/**
  * What kind of turn change an `updateCombat` is, under astora-mod's grouped initiative.
  * Compatibility only; without astora every update reads as an ordinary one.
  *

@@ -205,6 +205,8 @@ The mitigation aside spells out immunity, DR, resistance, hardness and vulnerabi
 
 The dice are real rolls animated through **Dice So Nice**, coloured by damage type wherever DSN is configured for it.
 
+The card is public by default. Turn on **Owners-only chat cards** to whisper it to the creature's owners and the GM instead (see [Good to know](#good-to-know)).
+
 ### API
 
 ```js
@@ -377,6 +379,7 @@ burned. That's a scene, not a calculation. Put it out, then advance.
 
 ## Good to know
 
+- **Chat cards can be kept to the creature's owners.** Turn on **Owners-only chat cards** (world scope, off by default) and every bleed, burning, and damage over time card, including the burning Reflex save card, is whispered to the creature's owners and the GM. Everyone else sees no card, and no dice unless Dice So Nice's ghost dice are on. A creature with no player owner shows its cards to the GM only.
 - **A GM needs to be logged in** for bleed and burning to be dealt — the GM's client handles it behind the scenes to avoid issues with duplicate applications. Players can still apply either to a target, but the back-end processing is done via the GM client.
 - Bleed **ignores damage reduction and resistances** and pulls from temporary hit points first.
 - **Healing hit points now ends ordinary bleeding automatically** (see [Healing stops it](#healing-stops-it)). The DC 15 Heal check half of the rule is still manual.

@@ -26,6 +26,7 @@
   unclassifiable. A troll keeps regenerating under a magic-only block.
 
 ### Added
+- **Chat cards can be kept to the creature's owners.** A new world setting, **Owners-only chat cards**, whispers every bleed, burning, and damage over time card (the burning Reflex save card included) to the creature's owners and the GM instead of posting it to everyone. Off by default, so nothing changes until it's switched on.
 - **Damage over time can fire on any interval, not just every round.** A new **Every** control above *Applies On* takes a count and a unit — rounds, minutes, hours or days. Left alone it's every round, exactly as before.
   - **The count takes a formula.** `@item.level` scales a schedule the way it scales damage, with the same live preview as the damage field. Dice aren't supported, since a schedule that rerolls its own spacing isn't useful; anything unusable falls back to one round rather than leaving the instance unable to fire.
   - **The interval and *Applies On* answer different questions.** The interval picks which round fires, *Applies On* picks where in that round — "every 1 minute, at turn end" is the carrier's turn end, once every ten rounds.

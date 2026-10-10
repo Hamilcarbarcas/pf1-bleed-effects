@@ -30,7 +30,14 @@
  * the message content has no child elements, so our card renders instead of a dice tray.
  */
 
-import { MODULE_ID, resolveActor, isActiveGM, groupTurnKind } from "./dot-common.mjs";
+import {
+  MODULE_ID,
+  SETTING_PRIVATE_CARDS,
+  resolveActor,
+  isActiveGM,
+  groupTurnKind,
+  cardWhisper,
+} from "./dot-common.mjs";
 
 /** Item flag holding the DoT configuration: `{ instances: { <id>: {...} } }`. */
 export const DOT_FLAG = "dot";
@@ -659,6 +666,7 @@ async function postCard(actor, results) {
     content,
     rolls: live.flatMap((r) => r.rolls),
     speaker: ChatMessage.getSpeaker({ actor }),
+    whisper: cardWhisper(actor),
   });
 }
 
@@ -949,6 +957,16 @@ Hooks.once("init", () => {
   mod.api ??= {};
   mod.api.dot = DotAPI;
   globalThis.pf1DamageOverTime = DotAPI; // convenience for macros
+
+  // Covers the bleed and burning cards too.
+  game.settings.register(MODULE_ID, SETTING_PRIVATE_CARDS, {
+    name: "BLD.Settings.PrivateCards.Name",
+    hint: "BLD.Settings.PrivateCards.Hint",
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: false,
+  });
 });
 
 Hooks.on("updateCombat", onUpdateCombat);

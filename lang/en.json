@@ -114,6 +114,8 @@
   "BLD.DoT.Note.Resisted": "{amount} resisted",
   "BLD.DoT.Note.Hardness": "{amount} to hardness",
   "BLD.DoT.Error.NoTarget": "Damage over time: no valid target actor.",
+  "BLD.Settings.PrivateCards.Name": "Owners-only chat cards",
+  "BLD.Settings.PrivateCards.Hint": "Whisper bleed, burning, and damage over time cards to the creature's owners and the GM instead of posting them to everyone.",
   "BLD.TimeJump.Burning": "Is on fire and owes a Reflex save each round.",
   "BLD.TimeJump.BurningDetail": "DC {dc}. Not simulated — resolve before advancing.",
   "BLD.TimeJump.Heading": "Time passes",

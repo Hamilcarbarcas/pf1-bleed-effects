@@ -24,7 +24,7 @@
  *    re-supplies it every time the effect list is read. Switch the buff off.
  */
 
-import { MODULE_ID, healingRefusedBy } from "./dot-common.mjs";
+import { MODULE_ID, healingRefusedBy, cardWhisper } from "./dot-common.mjs";
 import { BleedAPI, deepStateOf } from "./bleed.mjs";
 
 const SETTING_HEALING = "healingStopsBleed";
@@ -95,7 +95,7 @@ async function postCard(actor, count) {
   const content = `<div class="pf1-bleed-card pf1-bleed-healed">
     <p><i class="fa-solid fa-bandage"></i> ${text}</p>
   </div>`;
-  await ChatMessage.create({ content, speaker: ChatMessage.getSpeaker({ actor }) });
+  await ChatMessage.create({ content, speaker: ChatMessage.getSpeaker({ actor }), whisper: cardWhisper(actor) });
 }
 
 /**

@@ -49,6 +49,7 @@ import {
   getConditionSourceEffects,
   getConditionSourceItems,
   groupTurnKind,
+  cardWhisper,
 } from "./dot-common.mjs";
 
 const CONDITION_ID = "burning";
@@ -630,7 +631,7 @@ async function postBuiltInSaveCard(actor, dc) {
       <i class="fa-solid fa-person-running"></i> ${saveLabel}
     </button>
   </div>`;
-  await ChatMessage.create({ content, speaker: ChatMessage.getSpeaker({ actor }) });
+  await ChatMessage.create({ content, speaker: ChatMessage.getSpeaker({ actor }), whisper: cardWhisper(actor) });
 }
 
 /**
@@ -708,7 +709,7 @@ async function postCard(actor, text, kind, note) {
   const content = `<div class="pf1-burning-card pf1-burning-${kind}">
     <p><i class="fa-solid ${icon}"></i> ${text}${aside}</p>
   </div>`;
-  await ChatMessage.create({ content, speaker: ChatMessage.getSpeaker({ actor }) });
+  await ChatMessage.create({ content, speaker: ChatMessage.getSpeaker({ actor }), whisper: cardWhisper(actor) });
 }
 
 /**
