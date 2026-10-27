@@ -1,12 +1,13 @@
 /**
  * PF1 Bleed Effects — visual cues.
  *
- * Surfaces the bleed effects currently on an actor as a native Foundry tooltip
- * on the bleed condition, both in the actor sheet's Buffs tab and on the token
- * HUD's status menu — so you can see *what* and *how much* bleed is active.
+ * Surfaces the bleed effects and burning instances currently on an actor as a native Foundry
+ * tooltip on their condition, both in the actor sheet's Buffs tab and on the token HUD's status
+ * menu — so you can see *what* and *how much* is active.
  */
 
 import { BleedAPI } from "./bleed.mjs";
+import { BurningAPI } from "./burning.mjs";
 
 /**
  * Inner HTML listing each bleed effect (shared by the data-tooltip string and
@@ -57,14 +58,34 @@ function bleedListHTML(effects) {
 }
 
 /**
+ * Inner HTML listing each burning instance.
+ *
+ * @param {Array<{text:string}>} entries - From `BurningAPI.describe`.
+ * @returns {string}
+ */
+function burningListHTML(entries) {
+  const items = entries.map((e) => `<li>${e.text}</li>`).join("");
+  const note = entries.length > 1
+    ? `<em class="pf1-bleed-tooltip-note">${game.i18n.localize("BLD.Burning.Card.HighestNote")}</em>`
+    : "";
+  return `<strong>${game.i18n.localize("BLD.Burning.Display.Heading")}</strong><ul>${items}</ul>${note}`;
+}
+
+/** The conditions that get a tooltip, how to read them, and how to recognize their HUD icon. */
+const SOURCES = [
+  { id: "bleed", describe: (actor) => BleedAPI.describe(actor), html: bleedListHTML, icon: /\/bleed\.svg/i },
+  { id: "burning", describe: (actor) => BurningAPI.describe(actor), html: burningListHTML, icon: /\/fire\.svg/i },
+];
+
+/**
  * Build the full tooltip HTML for a set of bleed effects. PF1 already relies on
  * HTML inside `data-tooltip` (its enrichers join with `<br>`), so markup is safe.
  *
  * @param {Array<{label:string,formula:string}>} effects
  * @returns {string}
  */
-function buildTooltip(effects) {
-  return `<div class="pf1-bleed-tooltip">${bleedListHTML(effects)}</div>`;
+function buildTooltip(effects, html = bleedListHTML) {
+  return `<div class="pf1-bleed-tooltip">${html(effects)}</div>`;
 }
 
 /**
@@ -84,11 +105,11 @@ function rootOf(html) {
  * @param {HTMLElement} container
  * @param {Array} effects
  */
-function appendBleedSection(container, effects) {
+function appendBleedSection(container, effects, html = bleedListHTML) {
   if (container.querySelector(".pf1-bleed-tooltip")) return;
   const section = document.createElement("div");
   section.classList.add("pf1-bleed-tooltip", "pf1-bleed-hud");
-  section.innerHTML = bleedListHTML(effects);
+  section.innerHTML = html(effects);
   container.append(section);
 }
 
@@ -109,30 +130,32 @@ function onRenderActorSheet(app, html) {
   const actor = app.actor ?? app.document;
   if (!root || !actor) return;
 
-  const effects = BleedAPI.describe(actor);
-  if (!effects.length) return;
+  for (const source of SOURCES) {
+    const effects = source.describe(actor);
+    if (!effects.length) continue;
 
-  const el = root.querySelector('.buffs-conditions a.checkbox[data-condition-id="bleed"]');
-  if (!el) return;
-  const conditionDiv = el.closest(".condition");
+    const el = root.querySelector(`.buffs-conditions a.checkbox[data-condition-id="${source.id}"]`);
+    if (!el) continue;
+    const conditionDiv = el.closest(".condition");
 
-  // Default: native tooltip (works immediately when Little Helper isn't tooltipping).
-  el.dataset.tooltip = buildTooltip(effects);
+    // Default: native tooltip (works immediately when Little Helper isn't tooltipping).
+    el.dataset.tooltip = buildTooltip(effects, source.html);
 
-  // Defer so Little Helper's render has had a chance to create its `.lil-tooltip`.
-  requestAnimationFrame(() => {
-    const lil = conditionDiv?.querySelector(":scope > .lil-tooltip");
-    if (!lil) return; // No Little Helper tooltip; keep the native one.
+    // Defer so Little Helper's render has had a chance to create its `.lil-tooltip`.
+    requestAnimationFrame(() => {
+      const lil = conditionDiv?.querySelector(":scope > .lil-tooltip");
+      if (!lil) return; // No Little Helper tooltip; keep the native one.
 
-    // Don't show a competing native tooltip on top of Little Helper's.
-    delete el.dataset.tooltip;
+      // Don't show a competing native tooltip on top of Little Helper's.
+      delete el.dataset.tooltip;
 
-    // Little Helper fills its tooltip's innerHTML on (first) hover; append after
-    // that synchronous fill via rAF so our section isn't overwritten.
-    conditionDiv.addEventListener("pointerenter", () => {
-      requestAnimationFrame(() => appendBleedSection(lil, effects));
+      // Little Helper fills its tooltip's innerHTML on (first) hover; append after
+      // that synchronous fill via rAF so our section isn't overwritten.
+      conditionDiv.addEventListener("pointerenter", () => {
+        requestAnimationFrame(() => appendBleedSection(lil, effects, source.html));
+      });
     });
-  });
+  }
 }
 
 /**
@@ -146,14 +169,15 @@ function onRenderTokenHUD(hud, html) {
   const actor = hud.object?.actor;
   if (!root || !actor) return;
 
-  const effects = BleedAPI.describe(actor);
-  if (!effects.length) return;
+  for (const source of SOURCES) {
+    const effects = source.describe(actor);
+    if (!effects.length) continue;
 
-  const tip = buildTooltip(effects);
-  for (const el of root.querySelectorAll(".status-effects [data-status-id], .status-effects img.effect-control")) {
-    const id = el.dataset.statusId ?? el.dataset.conditionId;
-    const isBleed = id === "bleed" || /\/bleed\.svg/i.test(el.getAttribute("src") ?? "");
-    if (isBleed) el.dataset.tooltip = tip;
+    const tip = buildTooltip(effects, source.html);
+    for (const el of root.querySelectorAll(".status-effects [data-status-id], .status-effects img.effect-control")) {
+      const id = el.dataset.statusId ?? el.dataset.conditionId;
+      if (id === source.id || (!id && source.icon.test(el.getAttribute("src") ?? ""))) el.dataset.tooltip = tip;
+    }
   }
 }
 
@@ -166,11 +190,12 @@ function onRenderTokenHUD(hud, html) {
  * @param {{actor?:Actor,condition?:{id:string}}} info
  */
 function onLittleHelperTooltip(tooltip, { actor, condition } = {}) {
-  if (condition?.id !== "bleed" || !actor) return;
-  const effects = BleedAPI.describe(actor);
+  const source = SOURCES.find((s) => s.id === condition?.id);
+  if (!source || !actor) return;
+  const effects = source.describe(actor);
   if (!effects.length) return;
 
-  appendBleedSection(tooltip, effects);
+  appendBleedSection(tooltip, effects, source.html);
 }
 
 Hooks.on("renderActorSheet", onRenderActorSheet);

@@ -1,19 +1,16 @@
 /**
- * PF1 Burning Effects — `@Burning[...]` text enricher.
+ * PF1 Burning Effects – `@Burning[...]` text enricher.
  *
  * Syntax (follows PF1 enricher convention `@Verb[opts]{label}`):
- *   @Burning                     set on fire, default DC 15
- *   @Burning[dc=18]              set on fire, Reflex DC 18 to put out
- *   @Burning[nosave]             set on fire with no save (`save=false` too)
- *   @Burning{Immolate}          custom label
- *   @Burning[dc=20]{Immolate}   both
+ *   @Burning                                  catching fire: 1d6 now, free DC 15 save each turn
+ *   @Burning[damage=2d6;duration=1d4;dc=17]   a burn: configured damage, rounds and DC
+ *   @Burning[duration=0]                      a burn that lasts until put out (1d6, DC 15)
+ *   @Burning{Immolate}                        custom label
  *
- * Burning always deals 1d6 fire per round, so — unlike @Bleed — there is no
- * formula argument; the options are the save DC and whether a save is offered
- * at all.
+ * Any of `damage`, `duration` or `dc` makes it a burn; the rest default. See DESIGN-BURNING.md §2.
  */
 
-import { BurningAPI, DEFAULT_DC } from "./burning.mjs";
+import { BurningAPI, DAMAGE_FORMULA, DEFAULT_DC } from "./burning.mjs";
 
 const PATTERN = /@Burning(?:\[(?<options>[^\]]*)\])?(?:\{(?<label>[^}]*)\})?/g;
 
@@ -28,22 +25,26 @@ function parseOptions(str) {
   if (!str) return opts;
   for (const part of str.split(";")) {
     const [k, v] = part.split("=", 2);
-    if (k) opts[k.trim()] = (v ?? "true").trim();
+    if (k?.trim()) opts[k.trim().toLowerCase()] = (v ?? "").trim();
   }
   return opts;
 }
 
 /**
- * Read the "does this burning offer a save" option, accepting either the bare
- * `nosave` flag or an explicit `save=false`.
+ * The tooltip for a burn's options, with defaults filled in.
  *
- * @param {Record<string,string>} opts
- * @returns {boolean}
+ * @param {{damage:string, duration:string, dc:string}} opts
+ * @returns {string}
  */
-function parseSave(opts) {
-  if ("nosave" in opts) return !["true", "1", "yes"].includes(opts.nosave.toLowerCase());
-  if ("save" in opts) return !["false", "0", "no"].includes(opts.save.toLowerCase());
-  return true;
+function burnTooltip({ damage, duration, dc }) {
+  const rounds = duration && duration !== "0"
+    ? game.i18n.format("BLD.Burning.Enricher.Rounds", { duration })
+    : game.i18n.localize("BLD.Burning.Left.Until");
+  return game.i18n.format("BLD.Burning.Enricher.TooltipBurn", {
+    damage: damage || DAMAGE_FORMULA,
+    dc: dc || DEFAULT_DC,
+    rounds,
+  });
 }
 
 /**
@@ -55,16 +56,22 @@ function parseSave(opts) {
 function enrich(match) {
   const { options, label } = match.groups;
   const opts = parseOptions(options);
-  const dc = Number.isFinite(Number(opts.dc)) ? Number(opts.dc) : DEFAULT_DC;
-  const save = parseSave(opts);
+  const damage = opts.damage ?? "";
+  const duration = opts.duration ?? "";
+  const dc = opts.dc ?? "";
+  const isBurn = "damage" in opts || "duration" in opts || "dc" in opts;
 
   const a = document.createElement("a");
   a.classList.add("pf1-burning-link");
-  a.dataset.dc = String(dc);
-  a.dataset.save = String(save);
-  a.dataset.tooltip = save
-    ? game.i18n.format("BLD.Burning.Enricher.Tooltip", { dc })
-    : game.i18n.localize("BLD.Burning.Enricher.TooltipNoSave");
+  if (isBurn) {
+    a.dataset.burn = "true";
+    a.dataset.damage = damage;
+    a.dataset.duration = duration;
+    a.dataset.dc = dc;
+  }
+  a.dataset.tooltip = isBurn
+    ? burnTooltip({ damage, duration, dc })
+    : game.i18n.localize("BLD.Burning.Enricher.TooltipCatch");
   a.dataset.tooltipClass = "pf1";
 
   const i = document.createElement("i");
@@ -76,8 +83,8 @@ function enrich(match) {
 }
 
 /**
- * Resolve target actors for a clicked enricher, preferring PF1's own resolver
- * for parity with other enriched links.
+ * Resolve target actors for a clicked enricher, preferring PF1's own resolver for parity with
+ * other enriched links.
  *
  * @param {HTMLElement} el
  * @returns {Actor[]}
@@ -97,6 +104,22 @@ function getActors(el) {
 }
 
 /**
+ * Roll data of the message's source, so a burn's `@`-references lock to the inflicting creature.
+ *
+ * @param {HTMLElement} el
+ * @returns {object|null}
+ */
+function getSourceRollData(el) {
+  const msgId = el.closest("[data-message-id]")?.dataset.messageId;
+  const message = msgId ? game.messages.get(msgId) : null;
+  const src =
+    message?.actionSource ??
+    message?.itemSource ??
+    (message?.speaker ? ChatMessage.getSpeakerActor(message.speaker) : null);
+  return src?.getRollData?.() ?? null;
+}
+
+/**
  * Click handler for `@Burning` links.
  *
  * @param {MouseEvent} event
@@ -107,17 +130,24 @@ async function onClick(event) {
   event.preventDefault();
   event.stopPropagation();
 
-  const dc = Number(a.dataset.dc) || DEFAULT_DC;
-  const save = a.dataset.save !== "false";
-
   const actors = getActors(a);
   if (!actors.length) {
     ui.notifications.warn(game.i18n.localize("BLD.Burning.Enricher.NoTarget"));
     return;
   }
 
+  // A burn with every field blank still has to be a burn, so `duration=0` carries it.
+  const options = a.dataset.burn === "true"
+    ? {
+        formula: a.dataset.damage,
+        dc: a.dataset.dc,
+        duration: a.dataset.duration || "0",
+        sourceRollData: getSourceRollData(a) ?? undefined,
+      }
+    : {};
+
   for (const actor of actors) {
-    await BurningAPI.apply(actor, { dc, save });
+    await BurningAPI.apply(actor, options);
   }
 }
 

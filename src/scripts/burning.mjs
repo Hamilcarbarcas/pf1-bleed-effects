@@ -1,44 +1,19 @@
 /**
- * PF1 Burning Effects — recurring fire damage gated by a Reflex save.
+ * PF1 Burning Effects – recurring fire damage, in two forms.
  *
- * Burning reuses the bleed module's damage-over-time plumbing (active-GM tick
- * on `updateCombat`, socket-routed application, condition-synced state) but is
- * simpler in one axis and richer in another:
+ *  - **Catching fire** (`catch`): 1d6 fire the moment it lands, then a free DC 15 Reflex save at the
+ *    start of each turn to put it out. Applied by anything that carries no configuration: the
+ *    token HUD or sheet, bare `@Burning`, `apply(actor)`.
+ *  - **Burn** (`burn`): a configured formula, DC and duration, no damage on landing and no free
+ *    save. Applied by `@Burning[damage=…;duration=…;dc=…]`, a configured `apply()`, or a buff.
  *
- *  - Damage is `1d6` fire, and burning does not stack: a creature is on fire or
- *    it is not. A buff supplying the condition may override the formula (see
- *    `activeSource`), which is the only way to change it — `@Burning` and the
- *    API deliberately stay flat 1d6. Whatever is rolled is run through the
- *    target's fire immunity, resistance, and vulnerability (see
- *    `adjustForResistance`).
- *  - At the start of the burning creature's turn it may attempt a DC 15 Reflex
- *    save to put the fire out. A *success extinguishes and deals no damage*; a
- *    *failure deals 1d6 fire and burning persists*. If the turn ends with the
- *    save still unresolved (nobody rolled) and the creature is still on fire, it
- *    takes the 1d6 automatically — burning never stalls waiting for a click.
+ * Both forms may attempt a full-round Reflex save at +4 (the Extinguish button), and both deal
+ * their damage at the end of the burning creature's turn. Instances stack like bleed: every one is
+ * kept, the single highest deals damage each round, a save removes only the instances it beats,
+ * and each timed instance counts down on its own. One `burning` condition shows for all of them.
  *
- *    The save can be turned off two ways. The "Reflex save vs. burning" world
- *    setting is a master switch that suppresses it everywhere; individual
- *    burnings can also opt out at application time (`@Burning[nosave]`, or
- *    `apply(ref, { save: false })`). Either way no save is prompted: the
- *    creature simply takes its 1d6 fire automatically at the end of each of its
- *    turns (via the same end-of-turn fallback below) until the condition is
- *    removed.
- *
- * The Reflex save is obtained one of two ways, auto-detected at tick time:
- *
- *  - roll-requests present → a targeted roll-request card; the active GM (which
- *    created it) applies the outcome from the `onResult` callback.
- *  - otherwise → a self-contained save-button card the module posts itself. The
- *    owner who clicks it rolls `actor.rollSavingThrow` on their own client and
- *    reports the pass/fail to the active GM over the module socket.
- *
- * Application is GM-authoritative: the active GM owns the per-turn "pending
- * save" bookkeeping and performs every damage/extinguish write, so it can tell
- * a resolved save from an ignored one and apply the end-of-turn fallback.
- *
- * The PF1 `burning` condition is the visual marker and the source of truth for
- * "is this actor on fire"; a small actor flag stores the save DC.
+ * Application is GM-authoritative, as before: the active GM owns the per-turn bookkeeping and
+ * performs every write. See DESIGN-BURNING.md.
  */
 
 import {
@@ -46,65 +21,67 @@ import {
   SOCKET,
   resolveActor,
   isActiveGM,
-  getConditionSourceEffects,
   getConditionSourceItems,
+  getActorConditionEffect,
   groupTurnKind,
   cardWhisper,
 } from "./dot-common.mjs";
+import { resolveFormula } from "./bleed.mjs";
 
 const CONDITION_ID = "burning";
-const FLAG_KEY = "burning"; // { dc:number, save:boolean, startTime:number }
+const FLAG_KEY = "burning"; // { instances: Instance[] }
 
 /** Item flag holding a buff's burning configuration: `{ formula }`. */
 export const BUFF_FLAG = "burning";
 const NEVELA_ID = "nevelas-automation-suite";
 const ROLL_REQUESTS_ID = "pf1-roll-requests";
-const SETTING_SAVE = "burningSavePrompt";
 const SETTING_RESISTANCE = "burningResistance";
 
-const DAMAGE_FORMULA = "1d6";
+export const FORM_CATCH = "catch";
+export const FORM_BURN = "burn";
+
+export const DAMAGE_FORMULA = "1d6";
 const DAMAGE_TYPE = "fire";
 export const DEFAULT_DC = 15;
+export const EXTINGUISH_BONUS = 4;
 
 /**
- * Turn-tick de-dupe guard (see the bleed engine for the rationale). Only the
- * active GM ticks, so a module-level value is sufficient.
+ * @typedef {object} Instance
+ * @property {string} id
+ * @property {"catch"|"burn"} form
+ * @property {string} formula - `@`-references already locked; dice roll fresh each round.
+ * @property {number|null} dc - Null on a buff instance, which no save can end.
+ * @property {number|null} rounds - Turn ends left; null = until put out.
+ * @property {number} [startTime]
+ * @property {Item} [source] - The buff, on a derived instance only.
+ */
+
+/**
+ * Turn-tick de-dupe guard (see the bleed engine). Only the active GM ticks.
  *
  * @type {string|null}
  */
 let lastTickKey = null;
 
 /**
- * Message ids whose built-in save card has already been rolled on this client,
- * so a double-click can't roll twice.
+ * Card buttons already used on this client, keyed `messageId:kind`, so a double-click can't
+ * roll twice.
  *
  * @type {Set<string>}
  */
-const resolvedCards = new Set();
+const usedButtons = new Set();
 
 /**
- * Active GM only: per-turn "pending save" bookkeeping, keyed by actor UUID.
- * An entry exists from the moment a burning actor's turn prompts a save until
- * that save is resolved or the turn ends. `resolved` guards against double
- * application (a late roll after the end-of-turn fallback already fired).
+ * Active GM only: the turn in progress for each burning actor, from its turn start to its turn
+ * end. `armed` is the instance ids present at the start, the only ones its turn end may burn with.
  *
- * @type {Map<string, {resolved:boolean}>}
+ * @type {Map<string, {armed:Set<string>, freeSave:"pending"|"done"|null}>}
  */
-const pendingSaves = new Map();
+const turns = new Map();
 
 /**
- * Actor UUIDs whose burning condition *this* client is in the middle of applying through
- * `_applyLocal`, which deals its own opening damage.
- *
- * Turning the condition on fires `pf1ToggleActorCondition`, and that hook is now what deals the
- * opening 1d6 for every other way burning can arrive — so without this the module's own path would
- * roll it twice. The window is exact rather than heuristic: PF1 fires the hook synchronously from
- * the end of `setConditions`, so the entry is added and removed either side of a single `await`
- * and cannot outlive it.
- *
- * A flag test would be the simpler guard (it is what bleed's prompt uses), but it would also
- * suppress the burst when a buff sets alight a creature that happens to already carry a stored
- * burning — which is a genuine ignition, not a re-entry.
+ * Actor UUIDs whose marker this client is setting itself, so the toggle hook doesn't read it as
+ * a fresh catch. PF1 fires the hook synchronously inside `setConditions`.
  *
  * @type {Set<string>}
  */
@@ -117,17 +94,13 @@ const igniting = new Set();
 /**
  * Register a `burning` condition, but only when nothing else provides one.
  *
- * Nevela's Automation Suite ships its own `burning` and registers it
- * *unconditionally* (no `has()` guard), so if we claimed the key first its
- * registration would throw and break its later conditions. We therefore defer
- * to Nevela whenever it is active — order-independently — and otherwise only
- * register if the key is still free (in case another module provides it).
- * Either way the condition id is the bare string `"burning"`, so the rest of
- * this engine is agnostic to who registered it.
+ * Nevela's Automation Suite registers its own `burning` unconditionally, so claiming the key first
+ * would break its registration. Defer to it whenever it is active; otherwise register only if the
+ * key is still free. The condition id is the bare string either way.
  */
 Hooks.on("pf1RegisterConditions", (registry) => {
-  if (game.modules.get(NEVELA_ID)?.active) return; // Nevela owns "burning"
-  if (registry.has(CONDITION_ID)) return; // some other module already provides it
+  if (game.modules.get(NEVELA_ID)?.active) return;
+  if (registry.has(CONDITION_ID)) return;
 
   try {
     registry.register(MODULE_ID, CONDITION_ID, {
@@ -142,100 +115,171 @@ Hooks.on("pf1RegisterConditions", (registry) => {
 });
 
 /* -------------------------------------------- *
- *  Helpers
+ *  Instances
  * -------------------------------------------- */
 
 /**
- * The save DC configured on an actor's burning, or the default.
+ * The stored instance list from a raw flag value.
  *
- * @param {Actor} actor
- * @returns {number}
+ * The pre-2026-10-27 flag held one burning as `{ dc, save, startTime }`. Read as a catch when it
+ * was the default fire, otherwise as a burn at its DC.
+ *
+ * @param {object|undefined} flag
+ * @returns {Instance[]}
  */
-function getDC(actor) {
-  const dc = actor.getFlag(MODULE_ID, FLAG_KEY)?.dc;
-  return Number.isFinite(dc) ? dc : DEFAULT_DC;
+function normalize(flag) {
+  if (!flag) return [];
+  if (Array.isArray(flag.instances)) return flag.instances;
+
+  const dc = Number.isFinite(flag.dc) ? flag.dc : DEFAULT_DC;
+  const isCatch = flag.save !== false && dc === DEFAULT_DC;
+  return [{
+    id: "legacy",
+    form: isCatch ? FORM_CATCH : FORM_BURN,
+    formula: DAMAGE_FORMULA,
+    dc,
+    rounds: null,
+    startTime: Number(flag.startTime) || 0,
+  }];
 }
 
 /**
- * Whether burning on this actor is supplied by an item (typically a buff).
+ * A copy of the actor's stored instances, the only ones a save or a countdown can touch.
  *
  * @param {Actor} actor
- * @returns {boolean}
+ * @returns {Instance[]}
  */
-function isItemSourced(actor) {
-  return getConditionSourceItems(actor, CONDITION_ID).length > 0;
+export function getStoredInstances(actor) {
+  return foundry.utils.deepClone(normalize(actor?.getFlag(MODULE_ID, FLAG_KEY)));
 }
 
 /**
- * The single burning source governing this fire.
- *
- * Unlike bleed, burning does not stack: a creature is on fire or it isn't, and only one thing
- * decides how fiercely. When more than one source is present — two buffs, or a buff on top of a
- * creature already alight — the **most recently started** one wins and the others are simply
- * along for the ride.
- *
- * "Most recent" is measured in world time, because that is the only clock both sources share: a
- * buff's effect records `duration.startTime`, so the actor flag records the same on application.
- * Within a single round the two are therefore equal, and a tie goes to the buff — it is the one
- * carrying a deliberately configured formula.
+ * Instances derived from the buffs supplying the condition. Never stored: each lasts exactly as
+ * long as its buff, and nothing but the buff ends it.
  *
  * @param {Actor} actor
- * @returns {{formula:string, item:Item|null}|null}
+ * @returns {Instance[]}
  */
-function activeSource(actor) {
-  let best = null;
-
-  const flag = actor.getFlag(MODULE_ID, FLAG_KEY);
-  if (flag) best = { formula: DAMAGE_FORMULA, item: null, startTime: Number(flag.startTime) || 0 };
-
-  for (const ae of getConditionSourceEffects(actor, CONDITION_ID)) {
-    const item = ae.parent;
+export function getBuffInstances(actor) {
+  const byId = new Map();
+  for (const item of getConditionSourceItems(actor, CONDITION_ID)) {
     const configured = String(item.getFlag(MODULE_ID, BUFF_FLAG)?.formula ?? "").trim();
-    const candidate = {
+    byId.set(item.id, {
+      id: `buff:${item.id}`,
+      form: FORM_BURN,
       formula: configured || DAMAGE_FORMULA,
-      item,
-      startTime: Number(ae.duration?.startTime) || 0,
-    };
-    // `>=` so a tie in the same round resolves to the buff.
-    if (!best || candidate.startTime >= best.startTime) best = candidate;
+      dc: null,
+      rounds: null,
+      source: item,
+    });
   }
-
-  return best;
+  return [...byId.values()];
 }
 
 /**
- * Whether *this particular* burning offers a save.
- *
- * Normally this comes from the flag written at application time (absent — older
- * or hand-applied burnings — means "yes"). Item-sourced burning is always
- * save-less, whatever the flag says: PF1's `setConditions` can only find
- * condition effects that live directly on the actor
- * (`this.effects.find(...)`, flagged `// BUG:` in the system source), so
- * extinguishing one supplied by a buff is a silent no-op. Offering a save we
- * couldn't honour would report the fire as out while it kept burning, so the
- * burning simply runs saveless until the buff itself ends.
+ * Every instance on the actor, stored and buff-supplied.
  *
  * @param {Actor} actor
- * @returns {boolean}
+ * @returns {Instance[]}
  */
-function allowsSave(actor) {
-  if (isItemSourced(actor)) return false;
-  return actor.getFlag(MODULE_ID, FLAG_KEY)?.save !== false;
+export function getInstances(actor) {
+  return [...getStoredInstances(actor), ...getBuffInstances(actor)];
 }
 
 /**
- * Whether the per-turn Reflex save is enabled world-wide. This is a master
- * switch: when off, no burning prompts a save regardless of how it was applied.
- * Burning creatures then take the automatic end-of-turn 1d6 instead.
+ * Write the stored instances, keeping the actor-level marker in step: present exactly while
+ * anything is stored. Every mutation funnels through here.
  *
- * @returns {boolean}
+ * The marker test is for the actor-level effect, not `statuses`, for bleed's reason: a buff
+ * satisfies `statuses`, and the stored fire would lose its marker the moment the buff ended.
+ *
+ * @param {Actor} actor
+ * @param {Instance[]} instances
  */
-function savePromptEnabled() {
-  return game.settings.get(MODULE_ID, SETTING_SAVE);
+export async function writeStored(actor, instances) {
+  const raw = actor.getFlag(MODULE_ID, FLAG_KEY);
+  // The old single-burning keys would survive a merge alongside `instances`.
+  if (raw && !Array.isArray(raw.instances)) await actor.unsetFlag(MODULE_ID, FLAG_KEY);
+
+  const clean = instances.map(({ source, ...rest }) => rest);
+  if (clean.length) await actor.setFlag(MODULE_ID, FLAG_KEY, { instances: clean });
+  else if (actor.getFlag(MODULE_ID, FLAG_KEY)) await actor.unsetFlag(MODULE_ID, FLAG_KEY);
+
+  const marker = getActorConditionEffect(actor, CONDITION_ID);
+  if (clean.length && !marker) {
+    igniting.add(actor.uuid);
+    try {
+      await actor.setCondition(CONDITION_ID, true);
+    } finally {
+      igniting.delete(actor.uuid);
+    }
+  } else if (!clean.length && marker) {
+    await actor.setCondition(CONDITION_ID, false);
+  }
 }
 
 /**
- * Whether burning damage should be run through fire resistance/vulnerability.
+ * A new stored instance.
+ *
+ * @param {{form:string, formula?:string, dc?:number, rounds?:number|null}} data
+ * @returns {Instance}
+ */
+function newInstance({ form, formula = DAMAGE_FORMULA, dc = DEFAULT_DC, rounds = null }) {
+  return {
+    id: foundry.utils.randomID(),
+    form,
+    formula: String(formula),
+    dc: Number.isFinite(dc) ? dc : DEFAULT_DC,
+    rounds: Number.isFinite(rounds) && rounds > 0 ? rounds : null,
+    startTime: game.time.worldTime,
+  };
+}
+
+/**
+ * Whether a save result removes an instance. Natural 20 removes every instance and natural 1
+ * none, as for any PF1 save. A buff instance has no DC and never goes.
+ *
+ * @param {Instance} inst
+ * @param {number} total
+ * @param {number|null} natural
+ * @returns {boolean}
+ */
+export function saveBeats(inst, total, natural) {
+  if (!Number.isFinite(inst.dc)) return false;
+  if (natural === 20) return true;
+  if (natural === 1) return false;
+  return total >= inst.dc;
+}
+
+/**
+ * One instance as a line of text for cards and tooltips.
+ *
+ * @param {Instance} inst
+ * @returns {string}
+ */
+export function instanceLine(inst) {
+  const formula = inst.formula;
+  if (inst.source) {
+    return game.i18n.format("BLD.Burning.Line.Buff", {
+      formula,
+      source: foundry.utils.escapeHTML(inst.source.name),
+    });
+  }
+  if (inst.form === FORM_CATCH) return game.i18n.format("BLD.Burning.Line.Catch", { formula, dc: inst.dc });
+
+  let left;
+  if (inst.rounds === null) left = game.i18n.localize("BLD.Burning.Left.Until");
+  else if (inst.rounds === 1) left = game.i18n.localize("BLD.Burning.Left.One");
+  else left = game.i18n.format("BLD.Burning.Left.Rounds", { n: inst.rounds });
+  return game.i18n.format("BLD.Burning.Line.Burn", { formula, dc: inst.dc, left });
+}
+
+/* -------------------------------------------- *
+ *  Damage
+ * -------------------------------------------- */
+
+/**
+ * Whether burning damage should be run through fire resistance and vulnerability.
  *
  * @returns {boolean}
  */
@@ -244,36 +288,12 @@ function resistanceEnabled() {
 }
 
 /**
- * Roll one instance of burning fire damage, before any resistance.
- *
- * With no override the formula comes from whichever source currently governs the fire, and a
- * buff's formula is resolved against the *buff's* roll data so `@item.level` scaling works.
- * Burning applied by hand or by `@Burning` has no configured formula and no source at all — both
- * fall back to the flat 1d6.
- *
- * @param {Actor} actor
- * @param {string} [override] - Formula to roll instead of consulting the sources.
- * @returns {Promise<number>}
- */
-async function rollDamage(actor, override) {
-  const source = override ? null : activeSource(actor);
-  const formula = override || source?.formula || DAMAGE_FORMULA;
-  const rollData = source?.item?.getRollData() ?? actor.getRollData();
-  const roll = await pf1.dice.RollPF.safeRoll(formula, rollData);
-  return Math.max(0, Math.floor(roll.total || 0));
-}
-
-/**
- * Whether an actor carries a damage-type trait (immunity or vulnerability) for
- * the given damage type.
- *
- * PF1 v11 stores these as `{ base, standard:Set, custom:Set, total }` — the old
- * `.value` array is a deprecated getter that now returns a Set, so array
- * methods on it silently do nothing.
+ * Whether an actor carries a damage-type trait. PF1 v11 keeps these as `{ standard, custom,
+ * total }` Sets; the old `.value` array getter now returns a Set too.
  *
  * @param {Actor} actor
  * @param {"di"|"dv"} traitKey
- * @param {string} type - Damage type id, e.g. "fire".
+ * @param {string} type
  * @returns {boolean}
  */
 function hasDamageTrait(actor, traitKey, type) {
@@ -281,26 +301,17 @@ function hasDamageTrait(actor, traitKey, type) {
 }
 
 /**
- * Whether the actor is immune to fire (so burning does nothing to it).
- *
  * @param {Actor} actor
  * @returns {boolean}
  */
-function isFireImmune(actor) {
+export function isFireImmune(actor) {
   return hasDamageTrait(actor, "di", DAMAGE_TYPE);
 }
 
 /**
- * The actor's best fire resistance.
- *
- * `system.traits.eres` holds structured entries of the shape
- * `{ amount, operator, types:[typeId, typeId] }`. Following PF1's own damage
- * application, energy resistance is *inclusive*: an entry applies if fire is
- * among its types at all, irrespective of the AND/OR operator. Resistances to
- * the same energy type don't stack, so only the largest applies.
- *
- * Free-text entries in `eres.custom` are deliberately not parsed — matching
- * hand-typed resistance text by name is too easy to get wrong silently.
+ * The actor's best fire resistance. Energy resistance is inclusive, as in PF1's own damage
+ * application, and doesn't stack, so the largest applying entry wins. Free-text entries aren't
+ * parsed.
  *
  * @param {Actor} actor
  * @returns {number}
@@ -319,18 +330,13 @@ function getFireResistance(actor) {
 }
 
 /**
- * Run a rolled burning total through the target's fire vulnerability and
- * resistance, in that order — vulnerability is a modifier to the damage dealt,
- * and resistance subtracts from whatever ultimately lands.
- *
- * Fire *immunity* is handled separately by the callers, which skip damage (and
- * the burning condition) entirely rather than reducing it to zero.
+ * Run a rolled total through vulnerability, then resistance. Immunity is the callers' check.
  *
  * @param {Actor} actor
- * @param {number} raw - Rolled damage, before adjustment.
+ * @param {number} raw
  * @returns {{total:number, raw:number, resisted:number, vulnerable:boolean}}
  */
-function adjustForResistance(actor, raw) {
+export function adjustForResistance(actor, raw) {
   if (!resistanceEnabled()) return { total: raw, raw, resisted: 0, vulnerable: false };
 
   const vulnerable = hasDamageTrait(actor, "dv", DAMAGE_TYPE);
@@ -341,17 +347,69 @@ function adjustForResistance(actor, raw) {
 }
 
 /**
- * Roll a round of burning damage and apply it, honouring resistance.
+ * A formula's minimum and maximum, or null when it doesn't evaluate.
  *
- * Callers are responsible for the immunity check; this only handles the
- * partial-mitigation cases.
+ * @param {string} formula
+ * @param {object} rollData
+ * @returns {{min:number, max:number}|null}
+ */
+function formulaRange(formula, rollData) {
+  const RollPF = pf1.dice.RollPF;
+  const min = RollPF.safeRollSync(formula, rollData, undefined, { suppressError: true }, { minimize: true })?.total;
+  const max = RollPF.safeRollSync(formula, rollData, undefined, { suppressError: true }, { maximize: true })?.total;
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+  return { min, max };
+}
+
+/**
+ * One round's damage from a set of instances, before resistance.
+ *
+ * The rolled instance with the highest average is rolled, and the larger of that and the highest
+ * static value is the round's damage (DESIGN-BURNING.md §3). `(min + max) / 2` is the exact mean
+ * for sums of dice and constants.
  *
  * @param {Actor} actor
- * @param {string} [override] - Formula to roll instead of consulting the sources.
+ * @param {Instance[]} instances
+ * @returns {Promise<number>}
+ */
+export async function rollRound(actor, instances) {
+  let actorRollData = null;
+  let fixed = null;
+  let best = null;
+
+  for (const inst of instances) {
+    // A buff instance resolves against the buff each round, so `@item.level` scales.
+    const rollData = inst.source?.getRollData() ?? (actorRollData ??= actor.getRollData());
+    const range = formulaRange(inst.formula, rollData);
+    if (!range) continue;
+
+    if (range.min === range.max) {
+      if (fixed === null || range.min > fixed) fixed = range.min;
+      continue;
+    }
+    const mean = (range.min + range.max) / 2;
+    if (!best || mean > best.mean) best = { inst, mean, rollData };
+  }
+
+  let rolled = null;
+  if (best) {
+    const roll = await pf1.dice.RollPF.safeRoll(best.inst.formula, best.rollData);
+    rolled = Math.floor(roll?.total || 0);
+  }
+
+  return Math.max(0, rolled ?? 0, fixed ?? 0);
+}
+
+/**
+ * Roll a formula once and apply it, honoring resistance.
+ *
+ * @param {Actor} actor
+ * @param {string} formula
  * @returns {Promise<{total:number, raw:number, resisted:number, vulnerable:boolean}>}
  */
-async function rollAndApplyDamage(actor, override) {
-  const result = adjustForResistance(actor, await rollDamage(actor, override));
+async function rollAndApplyFormula(actor, formula) {
+  const roll = await pf1.dice.RollPF.safeRoll(formula, actor.getRollData());
+  const result = adjustForResistance(actor, Math.max(0, Math.floor(roll?.total || 0)));
   if (result.total > 0) await actor.applyDamage(result.total);
   return result;
 }
@@ -361,47 +419,84 @@ async function rollAndApplyDamage(actor, override) {
  * -------------------------------------------- */
 
 /**
- * Set an actor we own on fire: store the DC and save flag, show the condition,
- * and deal the initial 1d6 (catching fire deals damage immediately — no save).
+ * Set an actor we own alight.
  *
- * A fire-immune creature can't be lit at all: the condition isn't applied, so
- * it doesn't sit there as a marker that the first turn-tick would then clear.
+ * A catch deals its 1d6 every time it lands, but at most one catch instance is kept, so the turn
+ * end and the free save see one. A burn deals nothing on landing and is always added.
  *
  * @param {Actor} actor
- * @param {{dc?:number, save?:boolean}} [options]
+ * @param {{form:string, formula?:string, dc?:number, rounds?:number|null}} payload
  */
-async function _applyLocal(actor, { dc = DEFAULT_DC, save = true } = {}) {
+async function _applyLocal(actor, payload) {
+  const name = `<strong>${actor.name}</strong>`;
+
   if (isFireImmune(actor)) {
-    await postCard(actor, game.i18n.format("BLD.Burning.Immune", { name: `<strong>${actor.name}</strong>` }), "resist");
+    // A marker someone put on by hand comes off again.
+    if (!getStoredInstances(actor).length && getActorConditionEffect(actor, CONDITION_ID)) await writeStored(actor, []);
+    await postCard(actor, game.i18n.format("BLD.Burning.Immune", { name }), "resist");
     return;
   }
 
-  // startTime is what makes "most recent source wins" decidable against a buff's own start.
-  await actor.setFlag(MODULE_ID, FLAG_KEY, { dc, save, startTime: game.time.worldTime });
-  if (!actor.statuses.has(CONDITION_ID)) {
-    // Claim the ignition before the condition goes on, so the toggle hook defers to the roll below.
-    igniting.add(actor.uuid);
-    try {
-      await actor.setCondition(CONDITION_ID, true);
-    } finally {
-      igniting.delete(actor.uuid);
-    }
+  const stored = getStoredInstances(actor);
+
+  if (payload.form === FORM_CATCH) {
+    if (!stored.some((i) => i.form === FORM_CATCH)) stored.push(newInstance({ form: FORM_CATCH }));
+    await writeStored(actor, stored);
+    const result = await rollAndApplyFormula(actor, DAMAGE_FORMULA);
+    await postResult(actor, result, "BLD.Burning.Ignite", "BLD.Burning.IgniteResisted", "ignite", { extinguish: true });
+    return;
   }
 
-  // Catching fire deals *this* application's damage, not whatever source happens to be governing
-  // the ongoing burn — a buff already running shouldn't decide how hard the torch hits.
-  const result = await rollAndApplyDamage(actor, DAMAGE_FORMULA);
-  await postResult(actor, result, "BLD.Burning.Ignite", "BLD.Burning.IgniteResisted", "ignite");
+  const inst = newInstance({ ...payload, form: FORM_BURN });
+  stored.push(inst);
+  await writeStored(actor, stored);
+  await postCard(
+    actor,
+    game.i18n.format("BLD.Burning.SetAlight", { name, details: instanceLine(inst) }),
+    "ignite",
+    "",
+    { extinguish: true }
+  );
 }
 
 /**
- * Extinguish an actor we own: clear the condition and stored state.
+ * Put out every stored instance on an actor we own. Buff instances stay with their buff.
  *
  * @param {Actor} actor
  */
 async function _clearLocal(actor) {
-  if (actor.getFlag(MODULE_ID, FLAG_KEY)) await actor.unsetFlag(MODULE_ID, FLAG_KEY);
-  if (actor.statuses.has(CONDITION_ID)) await actor.setCondition(CONDITION_ID, false);
+  if (getStoredInstances(actor).length || getActorConditionEffect(actor, CONDITION_ID)) await writeStored(actor, []);
+}
+
+/**
+ * What putting out some fires left burning, as a sentence and a card kind.
+ *
+ * @param {Actor} actor
+ * @returns {{text:string, kind:"extinguish"|"burn"}}
+ */
+function putOutOutcome(actor) {
+  const name = `<strong>${actor.name}</strong>`;
+  const left = getInstances(actor).length;
+  if (!left) return { text: game.i18n.format("BLD.Burning.Extinguish", { name }), kind: "extinguish" };
+  return { text: game.i18n.format("BLD.Burning.PartlyOut", { name, n: left }), kind: "burn" };
+}
+
+/**
+ * Remove stored instances by id, closing the free save once the caught fire is gone.
+ *
+ * @param {Actor} actor
+ * @param {string[]} ids
+ * @returns {Promise<number>} How many were still there to remove.
+ */
+async function removeInstances(actor, ids) {
+  const stored = getStoredInstances(actor);
+  const kept = stored.filter((i) => !ids.includes(i.id));
+  if (kept.length === stored.length) return 0;
+  await writeStored(actor, kept);
+
+  const entry = turns.get(actor.uuid);
+  if (entry && !kept.some((i) => i.form === FORM_CATCH)) entry.freeSave = "done";
+  return stored.length - kept.length;
 }
 
 /* -------------------------------------------- *
@@ -409,37 +504,69 @@ async function _clearLocal(actor) {
  * -------------------------------------------- */
 
 /**
- * Set a target on fire.
+ * Whether an option was actually given. Blank strings count as not given, so a form with empty
+ * fields applies catching fire.
  *
- * If the caller doesn't own the target (e.g. a player torching an enemy), the
- * request is routed to the active GM via socket.
+ * @param {*} value
+ * @returns {boolean}
+ */
+const given = (value) => value !== undefined && value !== null && String(value).trim() !== "";
+
+/**
+ * Evaluate a number-or-formula option.
+ *
+ * @param {*} value
+ * @param {object} rollData
+ * @returns {Promise<number|null>}
+ */
+async function evaluateNumber(value, rollData) {
+  if (!given(value)) return null;
+  const roll = await pf1.dice.RollPF.safeRoll(String(value), rollData);
+  const n = Math.floor(Number(roll?.total));
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Set a target alight.
+ *
+ * With no options this is catching fire. Any of `formula`, `dc` or `duration` makes it a burn,
+ * with the others defaulting to 1d6, DC 15 and until put out.
  *
  * @param {Actor|Token|TokenDocument|string} ref
  * @param {object} [options]
- * @param {number} [options.dc=15] - Reflex DC to put the fire out.
- * @param {boolean} [options.save=true] - When false, this burning offers no
- *   save: it deals its 1d6 automatically at the end of each of the creature's
- *   turns, exactly as an unrolled save does.
+ * @param {string} [options.formula] - Fire damage each round.
+ * @param {number|string} [options.dc] - Reflex DC to put it out.
+ * @param {number|string} [options.duration] - Rounds, or a dice formula rolled now. 0 = until
+ *   put out.
+ * @param {object} [options.sourceRollData] - Locks `@`-references to the source. Defaults to the
+ *   target's.
  * @returns {Promise<void>}
  */
-async function apply(ref, { dc = DEFAULT_DC, save = true } = {}) {
+async function apply(ref, { formula, dc, duration, sourceRollData } = {}) {
   const actor = resolveActor(ref);
   if (!actor) {
     ui.notifications.error(game.i18n.localize("BLD.Burning.Error.NoTarget"));
     return;
   }
-  const payload = {
-    dc: Number.isFinite(Number(dc)) ? Number(dc) : DEFAULT_DC,
-    save: save !== false,
-  };
+
+  let payload = { form: FORM_CATCH };
+  if (given(formula) || given(dc) || given(duration)) {
+    const rollData = sourceRollData ?? actor.getRollData();
+    const rounds = await evaluateNumber(duration, rollData);
+    payload = {
+      form: FORM_BURN,
+      formula: given(formula) ? resolveFormula(String(formula).trim(), rollData) : DAMAGE_FORMULA,
+      dc: (await evaluateNumber(dc, rollData)) ?? DEFAULT_DC,
+      rounds: rounds > 0 ? rounds : null,
+    };
+  }
 
   if (actor.isOwner) return _applyLocal(actor, payload);
-
   game.socket.emit(SOCKET, { action: "burn", actorUuid: actor.uuid, payload });
 }
 
 /**
- * Put out a target's fire.
+ * Put out a target's fire. Buff-supplied burning ends only with its buff.
  *
  * @param {Actor|Token|TokenDocument|string} ref
  * @returns {Promise<void>}
@@ -447,151 +574,204 @@ async function apply(ref, { dc = DEFAULT_DC, save = true } = {}) {
 async function clear(ref) {
   const actor = resolveActor(ref);
   if (!actor) return;
-
   if (actor.isOwner) return _clearLocal(actor);
-
   game.socket.emit(SOCKET, { action: "extinguish", actorUuid: actor.uuid });
 }
 
 /**
- * Whether a target is currently burning.
- *
  * @param {Actor|Token|TokenDocument|string} ref
  * @returns {boolean}
  */
 function isBurning(ref) {
+  return !!resolveActor(ref)?.statuses.has(CONDITION_ID);
+}
+
+/**
+ * Every instance on a target, as plain data.
+ *
+ * @param {Actor|Token|TokenDocument|string} ref
+ * @returns {Array<{id:string, form:string, formula:string, dc:number|null, rounds:number|null, source:string|null, text:string}>}
+ */
+function describe(ref) {
   const actor = resolveActor(ref);
-  return !!actor?.statuses.has(CONDITION_ID);
+  if (!actor) return [];
+  return getInstances(actor).map((inst) => ({
+    id: inst.id,
+    form: inst.form,
+    formula: inst.formula,
+    dc: inst.dc,
+    rounds: inst.rounds,
+    source: inst.source?.name ?? null,
+    text: instanceLine(inst),
+  }));
 }
 
 /* -------------------------------------------- *
- *  Outcome application (shared by both branches)
+ *  Saves (applied on the active GM)
  * -------------------------------------------- */
 
 /**
- * Apply the result of a Reflex save on a burning actor: success extinguishes
- * with no damage; failure deals 1d6 fire and burning persists.
- *
- * Runs on the active GM (the authority for all burning writes). Only acts if an
- * unresolved pending save exists for this actor — a stray or late result (e.g.
- * a card clicked after its turn already ended and auto-resolved) is ignored.
+ * The free save's result. Only the catch instance is at stake.
  *
  * @param {Actor} actor
  * @param {boolean} passed
  */
-async function resolveSave(actor, passed) {
+async function resolveFreeSave(actor, passed) {
   if (!isActiveGM()) return;
-  const entry = pendingSaves.get(actor.uuid);
-  if (!entry || entry.resolved) return; // nothing pending, or already handled
-  entry.resolved = true;
+  const entry = turns.get(actor.uuid);
+  if (entry?.freeSave !== "pending") return; // nothing pending, or already handled
+  entry.freeSave = "done";
+  if (!passed) return; // the save card already says so
 
-  if (!actor.statuses.has(CONDITION_ID)) return; // put out by other means meanwhile
-
-  if (passed) {
-    await _clearLocal(actor);
-
-    // A save is only offered when nothing item-sourced is supplying the
-    // condition, but a buff could have been switched on since the prompt went
-    // out — in which case the fire is still burning and saying otherwise would
-    // be a lie. Report what actually happened.
-    if (actor.statuses.has(CONDITION_ID)) {
-      await postCard(actor, game.i18n.format("BLD.Burning.Persists", { name: `<strong>${actor.name}</strong>` }), "burn");
-      return;
-    }
-
-    await postCard(actor, game.i18n.format("BLD.Burning.Extinguish", { name: `<strong>${actor.name}</strong>` }), "extinguish");
-    return;
-  }
-
-  if (isFireImmune(actor)) return;
-  const result = await rollAndApplyDamage(actor);
-  await postResult(actor, result, "BLD.Burning.Burn", "BLD.Burning.Resisted", "burn");
+  const catches = getStoredInstances(actor).filter((i) => i.form === FORM_CATCH).map((i) => i.id);
+  if (!(await removeInstances(actor, catches))) return; // put out by other means meanwhile
+  const { text, kind } = putOutOutcome(actor);
+  await postCard(actor, text, kind);
 }
 
 /**
- * Active GM only: end-of-turn fallback. Any burning actor with a still-pending
- * save from a prior turn takes the 1d6 automatically (treated as no save
- * attempted), then its entry is cleared. Runs before the current combatant's
- * fresh prompt is created, so it only ever sees genuinely-elapsed saves — even
- * when the same actor is the only combatant.
+ * The Put Out button's work: remove the fires an Extinguish card names, then rewrite the card to
+ * say what happened. Ids already gone (another save, the countdown, a hand removal) are skipped.
  *
- * @param {Combat} _combat
+ * @param {ChatMessage} message
  */
-async function finalizePendingSaves(_combat) {
-  for (const [actorUuid, entry] of pendingSaves) {
-    if (!entry.resolved) {
-      const actor = resolveActor(actorUuid);
-      if (actor?.statuses.has(CONDITION_ID) && !isFireImmune(actor)) {
-        const result = await rollAndApplyDamage(actor);
-        const key = entry.noSave ? "BLD.Burning.AutoDamage" : "BLD.Burning.AutoNoSave";
-        await postResult(actor, result, key, "BLD.Burning.Resisted", "burn");
-      }
-    }
-    pendingSaves.delete(actorUuid);
-  }
+async function putOut(message) {
+  if (!isActiveGM()) return;
+  const data = message?.getFlag(MODULE_ID, "extinguish");
+  if (!data || data.done) return;
+
+  const actor = resolveActor(data.actorUuid);
+  if (!actor) return;
+
+  const removed = await removeInstances(actor, data.ids ?? []);
+  const { text, kind } = removed
+    ? putOutOutcome(actor)
+    : { text: game.i18n.format("BLD.Burning.ExtinguishCard.AlreadyOut", { name: `<strong>${actor.name}</strong>` }), kind: "burn" };
+
+  const icon = CARD_ICONS[kind] ?? "fa-fire";
+  await message.update({
+    content: `<div class="pf1-burning-card pf1-burning-${kind}">
+    <p><i class="fa-solid ${icon}"></i> ${text}</p>
+  </div>`,
+    [`flags.${MODULE_ID}.extinguish.done`]: true,
+  });
 }
 
 /* -------------------------------------------- *
- *  Turn-start tick
+ *  Turn flow
  * -------------------------------------------- */
 
 /**
- * At the burning actor's turn, prompt a Reflex save via whichever branch is
- * available. Fire-and-forget: resolution happens when the save is completed.
+ * The token to aim a roll request at, or null.
  *
  * @param {Actor} actor
  * @param {TokenDocument|null} token
+ * @returns {TokenDocument|null}
  */
-async function tickBurning(actor, token) {
-  if (!actor.statuses.has(CONDITION_ID)) return;
-
-  // Fire-immune creatures shouldn't be burning at all; clean up quietly.
-  if (isFireImmune(actor)) {
-    await _clearLocal(actor);
-    return;
-  }
-
-  // Saves turned off — either world-wide, or for this specific burning. Don't
-  // prompt; register a "no save" pending entry so the end-of-turn fallback
-  // deals the automatic 1d6 when this turn elapses.
-  if (!savePromptEnabled() || !allowsSave(actor)) {
-    pendingSaves.set(actor.uuid, { resolved: false, noSave: true });
-    return;
-  }
-
-  const dc = getDC(actor);
-
-  // Track the save so we can apply the end-of-turn fallback if it's ignored.
-  pendingSaves.set(actor.uuid, { resolved: false });
-
-  if (game.modules.get(ROLL_REQUESTS_ID)?.active && game.pf1RollRequests?.createRequest) {
-    return requestSaveViaRollRequests(actor, token, dc);
-  }
-  return postBuiltInSaveCard(actor, dc);
+function requestToken(actor, token) {
+  return token ?? actor.token ?? actor.getActiveTokens(false, true)[0] ?? null;
 }
 
 /**
- * roll-requests branch: create a targeted save request for just this actor and
- * apply the outcome from the streaming `onResult` callback (which runs on the
- * active GM that created the request).
+ * Start a burning actor's turn: arm what is burning now, post the turn card, and ask for the free
+ * save when a catch instance is present.
  *
  * @param {Actor} actor
  * @param {TokenDocument|null} token
- * @param {number} dc
  */
-async function requestSaveViaRollRequests(actor, token, dc) {
-  const tokenDoc = token ?? actor.token ?? actor.getActiveTokens(false, true)[0] ?? null;
-  if (!tokenDoc) return postBuiltInSaveCard(actor, dc); // no token to target → fall back
+async function startTurn(actor, token) {
+  let stored = getStoredInstances(actor);
+  // Our marker clicked off while a buff kept the status on: the stored fire went with it.
+  if (stored.length && !getActorConditionEffect(actor, CONDITION_ID)) {
+    await writeStored(actor, []);
+    stored = [];
+  }
 
+  const all = [...stored, ...getBuffInstances(actor)];
+  if (!all.length) return;
+
+  if (isFireImmune(actor)) {
+    if (stored.length) await writeStored(actor, []);
+    return;
+  }
+
+  const hasCatch = stored.some((i) => i.form === FORM_CATCH);
+  turns.set(actor.uuid, {
+    armed: new Set(all.map((i) => i.id)),
+    freeSave: hasCatch ? "pending" : null,
+  });
+
+  const target = hasCatch ? requestToken(actor, token) : null;
+  const viaRequests = !!target && !!game.modules.get(ROLL_REQUESTS_ID)?.active && !!game.pf1RollRequests?.createRequest;
+
+  await postTurnCard(actor, all, {
+    saveButton: hasCatch && !viaRequests,
+    extinguish: stored.length > 0,
+  });
+
+  if (viaRequests) await requestFreeSave(actor, target);
+}
+
+/**
+ * End a burning actor's turn: one round of damage from what was armed and still burns, then the
+ * countdown. A free save never rolled counted as failed already, since damage needs no click.
+ *
+ * @param {Actor} actor
+ * @param {{armed:Set<string>}} entry
+ */
+async function endTurn(actor, entry) {
+  if (isFireImmune(actor)) return;
+
+  const stored = getStoredInstances(actor);
+  const live = [...stored, ...getBuffInstances(actor)].filter((i) => entry.armed.has(i.id));
+  if (!live.length) return;
+
+  const result = adjustForResistance(actor, await rollRound(actor, live));
+  if (result.total > 0) await actor.applyDamage(result.total);
+
+  let counted = false;
+  const kept = [];
+  for (const inst of stored) {
+    if (entry.armed.has(inst.id) && inst.rounds !== null) {
+      inst.rounds -= 1;
+      counted = true;
+      if (inst.rounds <= 0) continue;
+    }
+    kept.push(inst);
+  }
+  if (counted) await writeStored(actor, kept);
+
+  const burnedOut = kept.length < stored.length && !getInstances(actor).length;
+  await postResult(actor, result, "BLD.Burning.AutoDamage", "BLD.Burning.Resisted", "burn", { burnedOut });
+}
+
+/**
+ * End every turn still open. Runs before the next turn starts, so it only sees elapsed turns.
+ */
+async function endTurns() {
+  for (const [actorUuid, entry] of turns) {
+    turns.delete(actorUuid);
+    const actor = resolveActor(actorUuid);
+    if (actor) await endTurn(actor, entry);
+  }
+}
+
+/**
+ * Ask for the free save through pf1-roll-requests, a GM-called check.
+ *
+ * @param {Actor} actor
+ * @param {TokenDocument} tokenDoc
+ */
+async function requestFreeSave(actor, tokenDoc) {
   let done = false;
   await game.pf1RollRequests.createRequest({
     type: "save",
     key: "ref",
-    dc,
+    dc: DEFAULT_DC,
     mode: "targeted",
     showDC: true,
     showResults: true,
-    flavor: game.i18n.format("BLD.Burning.SaveFlavor", { name: actor.name, dc }),
+    flavor: game.i18n.format("BLD.Burning.SaveFlavor", { name: actor.name, dc: DEFAULT_DC }),
     targetedActors: [
       {
         id: tokenDoc.id,
@@ -607,87 +787,13 @@ async function requestSaveViaRollRequests(actor, token, dc) {
       const passed = payload?.result?.passed;
       if (passed === null || passed === undefined) return;
       done = true;
-      resolveSave(actor, passed);
+      resolveFreeSave(actor, passed);
     },
   });
 }
 
 /* -------------------------------------------- *
- *  Built-in save card
- * -------------------------------------------- */
-
-/**
- * Post the module's own Reflex-save prompt card for a burning actor.
- *
- * @param {Actor} actor
- * @param {number} dc
- */
-async function postBuiltInSaveCard(actor, dc) {
-  const onFire = game.i18n.format("BLD.Burning.Card.OnFire", { name: `<strong>${actor.name}</strong>` });
-  const saveLabel = game.i18n.format("BLD.Burning.Card.SaveButton", { dc });
-  const content = `<div class="pf1-burning-card" data-burning-save data-actor-uuid="${actor.uuid}" data-dc="${dc}">
-    <p><i class="fa-solid fa-fire"></i> ${onFire}</p>
-    <button type="button" class="pf1-burning-save" data-actor-uuid="${actor.uuid}" data-dc="${dc}">
-      <i class="fa-solid fa-person-running"></i> ${saveLabel}
-    </button>
-  </div>`;
-  await ChatMessage.create({ content, speaker: ChatMessage.getSpeaker({ actor }), whisper: cardWhisper(actor) });
-}
-
-/**
- * Delegated click handler for built-in save-card buttons. Runs on the clicking
- * client; only an owner of the burning actor actually rolls & resolves.
- *
- * @param {MouseEvent} event
- */
-async function onSaveButtonClick(event) {
-  const button = event.target.closest?.("button.pf1-burning-save");
-  if (!button) return;
-  event.preventDefault();
-  event.stopPropagation();
-
-  const messageId = button.closest("[data-message-id]")?.dataset.messageId;
-  if (messageId && resolvedCards.has(messageId)) return;
-
-  const actor = resolveActor(button.dataset.actorUuid);
-  if (!actor) return;
-  if (!actor.isOwner) {
-    ui.notifications.warn(game.i18n.format("BLD.Burning.NoControl", { name: actor.name }));
-    return;
-  }
-
-  // Lock this card on this client before awaiting anything.
-  if (messageId) resolvedCards.add(messageId);
-  button.disabled = true;
-
-  const dc = Number(button.dataset.dc) || DEFAULT_DC;
-  const skipDialog = !actor.hasPlayerOwner; // NPCs (GM-driven) skip the situational dialog
-
-  let msg;
-  try {
-    msg = await actor.rollSavingThrow("ref", { dc, skipDialog });
-  } catch (err) {
-    console.error(`${MODULE_ID} | Reflex save failed to roll`, err);
-  }
-
-  const roll = msg?.rolls?.[0];
-  if (!roll) {
-    // Roll was cancelled (dialog dismissed) — let the player try again.
-    if (messageId) resolvedCards.delete(messageId);
-    button.disabled = false;
-    return;
-  }
-
-  const passed = roll.isSuccess ?? roll.total >= dc;
-
-  // Application is GM-authoritative. If we are the GM, resolve directly;
-  // otherwise report the result to the active GM over the module socket.
-  if (isActiveGM()) await resolveSave(actor, passed);
-  else game.socket.emit(SOCKET, { action: "burnSaveResult", actorUuid: actor.uuid, payload: { passed } });
-}
-
-/* -------------------------------------------- *
- *  Chat card
+ *  Cards
  * -------------------------------------------- */
 
 const CARD_ICONS = {
@@ -696,25 +802,68 @@ const CARD_ICONS = {
 };
 
 /**
- * Post a one-line burning chat card.
+ * The Extinguish button's markup.
  *
  * @param {Actor} actor
- * @param {string} text - Full localized sentence (already includes the actor name).
- * @param {"ignite"|"burn"|"extinguish"|"resist"} kind
- * @param {string} [note] - Optional localized mitigation aside.
+ * @returns {string}
  */
-async function postCard(actor, text, kind, note) {
+function extinguishButton(actor) {
+  const label = game.i18n.format("BLD.Burning.Card.ExtinguishButton", { bonus: EXTINGUISH_BONUS });
+  return `<button type="button" class="pf1-burning-extinguish" data-actor-uuid="${actor.uuid}">
+      <i class="fa-solid fa-fire-extinguisher"></i> ${label}
+    </button>`;
+}
+
+/**
+ * Post a one-line burning card.
+ *
+ * @param {Actor} actor
+ * @param {string} text - Full localized sentence.
+ * @param {"ignite"|"burn"|"extinguish"|"resist"} kind
+ * @param {string} [note] - Optional mitigation aside.
+ * @param {{extinguish?:boolean}} [options]
+ */
+async function postCard(actor, text, kind, note, { extinguish = false } = {}) {
   const icon = CARD_ICONS[kind] ?? "fa-fire";
   const aside = note ? ` <span class="pf1-burning-note">${note}</span>` : "";
   const content = `<div class="pf1-burning-card pf1-burning-${kind}">
     <p><i class="fa-solid ${icon}"></i> ${text}${aside}</p>
+    ${extinguish ? extinguishButton(actor) : ""}
   </div>`;
   await ChatMessage.create({ content, speaker: ChatMessage.getSpeaker({ actor }), whisper: cardWhisper(actor) });
 }
 
 /**
- * Summarize how resistance/vulnerability changed a roll, so a reduced total
- * doesn't read as a bug. Empty when the damage landed unmodified.
+ * The start-of-turn card: what is burning, and the buttons that can put it out.
+ *
+ * @param {Actor} actor
+ * @param {Instance[]} instances
+ * @param {{saveButton:boolean, extinguish:boolean}} options
+ */
+async function postTurnCard(actor, instances, { saveButton, extinguish }) {
+  const onFire = game.i18n.format("BLD.Burning.Card.OnFire", { name: `<strong>${actor.name}</strong>` });
+  const lines = instances.map((i) => `<li>${instanceLine(i)}</li>`).join("");
+  const highest = instances.length > 1
+    ? `<p class="pf1-burning-note">${game.i18n.localize("BLD.Burning.Card.HighestNote")}</p>`
+    : "";
+  const save = saveButton
+    ? `<button type="button" class="pf1-burning-save" data-actor-uuid="${actor.uuid}" data-dc="${DEFAULT_DC}">
+      <i class="fa-solid fa-person-running"></i> ${game.i18n.format("BLD.Burning.Card.SaveButton", { dc: DEFAULT_DC })}
+    </button>`
+    : "";
+
+  const content = `<div class="pf1-burning-card" data-actor-uuid="${actor.uuid}">
+    <p><i class="fa-solid fa-fire"></i> ${onFire}</p>
+    <ul>${lines}</ul>
+    ${highest}
+    ${save}
+    ${extinguish ? extinguishButton(actor) : ""}
+  </div>`;
+  await ChatMessage.create({ content, speaker: ChatMessage.getSpeaker({ actor }), whisper: cardWhisper(actor) });
+}
+
+/**
+ * How resistance or vulnerability changed a roll. Empty when it landed unmodified.
  *
  * @param {{raw:number, resisted:number, vulnerable:boolean}} result
  * @returns {string}
@@ -727,43 +876,259 @@ function damageNote({ raw, resisted, vulnerable }) {
 }
 
 /**
- * Post the outcome of a damage tick, picking the wording to match whether any
- * damage actually got through.
+ * Post a damage outcome, worded for whether anything got through.
  *
  * @param {Actor} actor
  * @param {{total:number, raw:number, resisted:number, vulnerable:boolean}} result
- * @param {string} dealtKey - i18n key for "took {total} damage", given `name` and `total`.
- * @param {string} resistedKey - i18n key for "resisted it entirely", given `name`.
+ * @param {string} dealtKey - Given `name` and `total`.
+ * @param {string} resistedKey - Given `name`.
  * @param {"ignite"|"burn"} kind
+ * @param {{extinguish?:boolean, burnedOut?:boolean}} [options]
  */
-async function postResult(actor, result, dealtKey, resistedKey, kind) {
+async function postResult(actor, result, dealtKey, resistedKey, kind, { extinguish = false, burnedOut = false } = {}) {
   const name = `<strong>${actor.name}</strong>`;
   const dealt = result.total > 0;
-  const text = dealt
+  let text = dealt
     ? game.i18n.format(dealtKey, { name, total: result.total })
     : game.i18n.format(resistedKey, { name });
-  await postCard(actor, text, dealt ? kind : "resist", damageNote(result));
+  if (burnedOut) text += " " + game.i18n.localize("BLD.Burning.BurnsOut");
+  await postCard(actor, text, dealt ? kind : "resist", damageNote(result), { extinguish });
 }
+
+/* -------------------------------------------- *
+ *  Card buttons (clicking client)
+ * -------------------------------------------- */
+
+/**
+ * Lock a card button on this client before anything is awaited.
+ *
+ * @param {HTMLButtonElement} button
+ * @param {string} kind
+ * @returns {string|null} The lock key, or null when already used.
+ */
+function lockButton(button, kind) {
+  const messageId = button.closest("[data-message-id]")?.dataset.messageId;
+  const key = messageId ? `${messageId}:${kind}` : null;
+  if (key && usedButtons.has(key)) return null;
+  if (key) usedButtons.add(key);
+  button.disabled = true;
+  return key ?? "";
+}
+
+/**
+ * Release a lock after a cancelled roll, so the player can try again.
+ *
+ * @param {HTMLButtonElement} button
+ * @param {string} key
+ */
+function unlockButton(button, key) {
+  if (key) usedButtons.delete(key);
+  button.disabled = false;
+}
+
+/**
+ * The free save's button, on the turn card when pf1-roll-requests isn't handling it.
+ *
+ * @param {HTMLButtonElement} button
+ */
+async function onFreeSaveClick(button) {
+  const actor = resolveActor(button.dataset.actorUuid);
+  if (!actor) return;
+  if (!actor.isOwner) {
+    ui.notifications.warn(game.i18n.format("BLD.Burning.NoControl", { name: actor.name }));
+    return;
+  }
+
+  const key = lockButton(button, "save");
+  if (key === null) return;
+
+  const dc = Number(button.dataset.dc) || DEFAULT_DC;
+  let msg;
+  try {
+    msg = await actor.rollSavingThrow("ref", { dc, skipDialog: !actor.hasPlayerOwner });
+  } catch (err) {
+    console.error(`${MODULE_ID} | Reflex save failed to roll`, err);
+  }
+
+  const roll = msg?.rolls?.[0];
+  if (!roll) return unlockButton(button, key);
+
+  const passed = roll.isSuccess ?? roll.total >= dc;
+  if (isActiveGM()) await resolveFreeSave(actor, passed);
+  else game.socket.emit(SOCKET, { action: "burnSaveResult", actorUuid: actor.uuid, payload: { passed } });
+}
+
+/**
+ * The actor's combat and token when it is fighting in a started combat, else null.
+ *
+ * @param {Actor} actor
+ * @returns {{combat:Combat, token:TokenDocument|null}|null}
+ */
+function fighting(actor) {
+  const combat = game.combat;
+  if (!combat?.started) return null;
+  const combatant = combat.combatants.find((c) => c.actor?.uuid === actor.uuid);
+  return combatant ? { combat, token: combatant.token ?? null } : null;
+}
+
+/**
+ * The Extinguish outcome card: what the roll beat and what still burns, with a Put Out button
+ * when it beat anything. Nothing is removed until that button is clicked.
+ *
+ * @param {Actor} actor
+ * @param {Roll} roll
+ */
+async function postExtinguishCard(actor, roll) {
+  const name = `<strong>${actor.name}</strong>`;
+  const total = roll.total;
+  const natural = Number.isFinite(roll.natural) ? roll.natural : null;
+
+  const stored = getStoredInstances(actor);
+  const beaten = stored.filter((i) => saveBeats(i, total, natural));
+  const remaining = [...stored.filter((i) => !beaten.includes(i)), ...getBuffInstances(actor)];
+  const list = (insts) => `<ul>${insts.map((i) => `<li>${instanceLine(i)}</li>`).join("")}</ul>`;
+
+  let body;
+  if (!beaten.length) {
+    body = `<p><i class="fa-solid fa-fire"></i> ${game.i18n.format("BLD.Burning.ExtinguishCard.Fails", { name, total })}</p>`;
+  } else {
+    body = `<p><i class="fa-solid fa-fire-extinguisher"></i> ${game.i18n.format("BLD.Burning.ExtinguishCard.Beats", { name, total })}</p>
+    ${list(beaten)}`;
+    if (remaining.length) body += `<p>${game.i18n.localize("BLD.Burning.ExtinguishCard.Remains")}</p>${list(remaining)}`;
+    body += `<button type="button" class="pf1-burning-putout">
+      <i class="fa-solid fa-fire-extinguisher"></i> ${game.i18n.format("BLD.Burning.Card.PutOutButton", { n: beaten.length })}
+    </button>`;
+  }
+
+  await ChatMessage.create({
+    content: `<div class="pf1-burning-card pf1-burning-extinguish">${body}</div>`,
+    speaker: ChatMessage.getSpeaker({ actor }),
+    whisper: cardWhisper(actor),
+    flags: { [MODULE_ID]: { extinguish: { actorUuid: actor.uuid, ids: beaten.map((i) => i.id), done: !beaten.length } } },
+  });
+}
+
+/**
+ * The Put Out button, on an Extinguish card.
+ *
+ * @param {HTMLButtonElement} button
+ */
+async function onPutOutClick(button) {
+  const message = game.messages.get(button.closest("[data-message-id]")?.dataset.messageId);
+  const data = message?.getFlag(MODULE_ID, "extinguish");
+  if (!data || data.done) return;
+
+  const actor = resolveActor(data.actorUuid);
+  if (!actor?.isOwner) {
+    ui.notifications.warn(game.i18n.format("BLD.Burning.NoControl", { name: actor?.name ?? "" }));
+    return;
+  }
+  if (lockButton(button, "putout") === null) return;
+
+  if (isActiveGM()) await putOut(message);
+  else game.socket.emit(SOCKET, { action: "burnPutOut", messageId: message.id });
+}
+
+/**
+ * The Extinguish button: a full-round action, Reflex at +4, rolled through the system's save
+ * with its dialog every time (a GM running an NPC included). In combat it waits for the actor's
+ * turn, and astora-mod's Action Tracker gets its shortfall question first and its slots after the
+ * roll lands. The roll only reports; the outcome card's Put Out button does the removing.
+ *
+ * @param {HTMLButtonElement} button
+ */
+async function onExtinguishClick(button) {
+  const actor = resolveActor(button.dataset.actorUuid);
+  if (!actor) return;
+  if (!actor.isOwner) {
+    ui.notifications.warn(game.i18n.format("BLD.Burning.NoControl", { name: actor.name }));
+    return;
+  }
+  if (!getStoredInstances(actor).length) {
+    ui.notifications.warn(game.i18n.format("BLD.Burning.NothingToPutOut", { name: actor.name }));
+    return;
+  }
+
+  const fight = fighting(actor);
+  const tracker = game.astoraMod?.actionTracker;
+  const actionName = game.i18n.localize("BLD.Burning.ExtinguishAction");
+  if (fight) {
+    // The tracker knows grouped turns; without it, the current combatant is the test.
+    const reading = fight.token ? tracker?.state?.(fight.token) : null;
+    const acting = reading ? reading.acting : fight.combat.combatant?.actor?.uuid === actor.uuid;
+    if (!acting) {
+      ui.notifications.warn(game.i18n.format("BLD.Burning.NotYourTurn", { name: actor.name }));
+      return;
+    }
+  }
+
+  const key = lockButton(button, "extinguish");
+  if (key === null) return;
+
+  if (fight?.token && tracker?.confirm && !(await tracker.confirm(fight.token, "full", { name: actionName }))) {
+    return unlockButton(button, key);
+  }
+
+  let msg;
+  try {
+    msg = await actor.rollSavingThrow("ref", { skipDialog: false, pf1BurningExtinguish: true });
+  } catch (err) {
+    console.error(`${MODULE_ID} | Extinguish save failed to roll`, err);
+  }
+
+  const roll = msg?.rolls?.[0];
+  if (!roll) return unlockButton(button, key);
+
+  if (fight?.token) await tracker?.charge?.(fight.token, "full");
+  await postExtinguishCard(actor, roll);
+}
+
+/**
+ * Delegated click handler for the card buttons.
+ *
+ * @param {MouseEvent} event
+ */
+function onCardClick(event) {
+  const button = event.target.closest?.("button.pf1-burning-save, button.pf1-burning-extinguish, button.pf1-burning-putout");
+  if (!button) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (button.classList.contains("pf1-burning-save")) onFreeSaveClick(button);
+  else if (button.classList.contains("pf1-burning-putout")) onPutOutClick(button);
+  else onExtinguishClick(button);
+}
+
+/**
+ * The Extinguish roll's +4, as a labeled part so it reads on the card like any other modifier.
+ * The marker option is removed so it goes no further than this hook.
+ */
+Hooks.on("pf1PreActorRollSave", (actor, rollOptions) => {
+  if (!rollOptions?.pf1BurningExtinguish) return;
+  delete rollOptions.pf1BurningExtinguish;
+  rollOptions.parts?.push(`${EXTINGUISH_BONUS}[${game.i18n.localize("BLD.Burning.ExtinguishAction")}]`);
+  rollOptions.flavor = game.i18n.format("BLD.Burning.ExtinguishFlavor", { name: actor.name });
+});
 
 /* -------------------------------------------- *
  *  Combat hook
  * -------------------------------------------- */
 
 /**
- * `updateCombat` handler: prompt the save for the actor whose turn just began.
+ * `updateCombat` handler: end the turn that just finished, then start the one beginning.
  *
  * @param {Combat} combat
  * @param {object} changed
+ * @param {object} options
  */
 async function onUpdateCombat(combat, changed, options) {
-  if (!isActiveGM()) return; // exactly one executor
+  if (!isActiveGM()) return;
   if (!combat.started) return;
   if (changed.round === undefined && changed.turn === undefined) return;
 
   const key = `${combat.id}:${combat.round}:${combat.turn}`;
   const groupKind = groupTurnKind(options);
 
-  // A grouped-initiative reorder is not a turn change: record the position, nothing else.
+  // A grouped-initiative reorder is not a turn change.
   if (groupKind === "reanchor") {
     lastTickKey = key;
     return;
@@ -772,19 +1137,16 @@ async function onUpdateCombat(combat, changed, options) {
   if (key === lastTickKey) return;
   lastTickKey = key;
 
-  // End-of-turn fallback for whoever was burning last turn, before we prompt
-  // the actor whose turn is now starting. Not on a grouped-initiative walk step:
-  // the member left behind is still mid-turn, and every member's pending save is
-  // finalized together by the ordinary turn change that ends the group's turn.
-  if (groupKind !== "walk") await finalizePendingSaves(combat);
+  // A walk step starts a member's turn without ending the one left behind; every member's turn
+  // ends together on the ordinary change that ends the group's.
+  if (groupKind !== "walk") await endTurns();
 
   const combatant = combat.combatant;
   const actor = combatant?.actor;
-  if (!actor) return;
-  if (combatant.isDefeated) return;
+  if (!actor || combatant.isDefeated) return;
   if (!actor.statuses.has(CONDITION_ID)) return;
 
-  tickBurning(actor, combatant.token ?? null);
+  startTurn(actor, combatant.token ?? null);
 }
 
 /* -------------------------------------------- *
@@ -792,35 +1154,27 @@ async function onUpdateCombat(combat, changed, options) {
  * -------------------------------------------- */
 
 /**
- * Execute burn/extinguish requests routed from non-owning clients.
+ * Requests routed from non-owning clients.
  *
- * @param {{action:string,actorUuid:string,payload:object}} data
+ * @param {{action:string, actorUuid:string, payload:object}} data
  */
 function onSocket(data) {
-  if (!isActiveGM()) return; // only the active GM performs the write
+  if (!isActiveGM()) return;
+  if (data.action === "burnPutOut") return void putOut(game.messages.get(data.messageId));
   const actor = resolveActor(data.actorUuid);
   if (!actor) return;
-  if (data.action === "burn") _applyLocal(actor, data.payload ?? {});
+  if (data.action === "burn") _applyLocal(actor, data.payload ?? { form: FORM_CATCH });
   else if (data.action === "extinguish") _clearLocal(actor);
-  else if (data.action === "burnSaveResult") resolveSave(actor, !!data.payload?.passed);
+  else if (data.action === "burnSaveResult") resolveFreeSave(actor, !!data.payload?.passed);
 }
 
 /* -------------------------------------------- *
  *  Registration
  * -------------------------------------------- */
 
-export const BurningAPI = { apply, clear, isBurning, DEFAULT_DC };
+export const BurningAPI = { apply, clear, isBurning, describe, DEFAULT_DC };
 
 Hooks.once("init", () => {
-  game.settings.register(MODULE_ID, SETTING_SAVE, {
-    name: "BLD.Settings.SavePrompt.Name",
-    hint: "BLD.Settings.SavePrompt.Hint",
-    scope: "world",
-    config: true,
-    type: Boolean,
-    default: true,
-  });
-
   game.settings.register(MODULE_ID, SETTING_RESISTANCE, {
     name: "BLD.Settings.Resistance.Name",
     hint: "BLD.Settings.Resistance.Hint",
@@ -833,82 +1187,54 @@ Hooks.once("init", () => {
   const mod = game.modules.get(MODULE_ID);
   mod.api ??= {};
   mod.api.burning = BurningAPI;
-  globalThis.pf1BurningEffects = BurningAPI; // convenience for macros
+  globalThis.pf1BurningEffects = BurningAPI;
+});
+
+/**
+ * No right-click duration on the sheet's burning condition: a timer on the shared marker would
+ * end every instance at once, and a burn carries its own. Listeners bind per render, so patching
+ * the prototype before any sheet opens covers them all.
+ */
+Hooks.once("setup", () => {
+  const proto = pf1.applications?.actor?.ActorSheetPF?.prototype;
+  const original = proto?._onEditCondition;
+  if (typeof original !== "function") return;
+  proto._onEditCondition = function (event) {
+    if (event?.currentTarget?.dataset?.conditionId === CONDITION_ID) {
+      event.preventDefault();
+      return;
+    }
+    return original.call(this, event);
+  };
 });
 
 Hooks.once("ready", () => {
   game.socket.on(SOCKET, onSocket);
-  document.body.addEventListener("click", onSaveButtonClick);
+  document.body.addEventListener("click", onCardClick);
 });
 
 Hooks.on("updateCombat", onUpdateCombat);
 
-/**
- * Deal the opening 1d6 for a burning that arrived without going through `apply()` — the token HUD,
- * the actor sheet, a buff switching on, or another module putting the condition there. Catching
- * fire deals damage immediately however the fire was lit.
- *
- * The damage is whatever currently governs the fire rather than a flat 1d6, so a buff with its own
- * Burning Damage formula hits as hard on ignition as it does each round afterwards.
- *
- * Fire-immune creatures take nothing and keep the marker: the condition is already on by the time
- * this runs, and a buff-supplied one can't be removed from here anyway (PF1's `setConditions` only
- * sees effects living directly on the actor). The turn-start tick clears it either way.
- *
- * @param {Actor} actor
- */
-async function igniteFromCondition(actor) {
-  if (isFireImmune(actor)) {
-    await postCard(actor, game.i18n.format("BLD.Burning.ImmuneMarker", { name: `<strong>${actor.name}</strong>` }), "resist");
-    return;
-  }
-
-  const result = await rollAndApplyDamage(actor);
-  await postResult(actor, result, "BLD.Burning.Ignite", "BLD.Burning.IgniteResisted", "ignite");
-}
+// A combat ended mid-turn: that turn never ends, and the next combat's first change mustn't end it.
+Hooks.on("deleteCombat", () => turns.clear());
 
 /**
- * Condition toggle handling. Fires only on the client that toggled it (an owner), so exactly one
- * client acts — including for a buff, whose condition effect is created on the *item* but whose
- * creation bubbles up to the actor as an ordinary toggle.
+ * Condition toggles. Fires only on the toggling client, an owner.
  *
- * ON — deal the opening damage, unless `_applyLocal` is mid-application and rolling it itself.
- * OFF — drop the stored DC flag so nothing lingers.
+ * ON with an actor-level marker this module didn't set: the HUD, the sheet, or another module,
+ * so catching fire. ON from a buff alone: a burn, which deals nothing on landing.
+ * OFF: the stored fire goes with the marker.
  */
 Hooks.on("pf1ToggleActorCondition", (actor, conditionId, state) => {
   if (conditionId !== CONDITION_ID) return;
   if (!actor?.isOwner) return;
 
   if (state) {
-    if (igniting.has(actor.uuid)) return; // our own apply() path; it deals the burst
-    igniteFromCondition(actor);
+    if (igniting.has(actor.uuid)) return;
+    if (!getActorConditionEffect(actor, CONDITION_ID)) return;
+    _applyLocal(actor, { form: FORM_CATCH });
     return;
   }
 
   if (actor.getFlag(MODULE_ID, FLAG_KEY)) actor.unsetFlag(MODULE_ID, FLAG_KEY);
-});
-
-/**
- * Block a time jump over a burning creature.
- *
- * Burning *could* run headless — a save-less burning already deals its 1d6 each
- * turn without a click. It is still not simulated, because the save extinguishes
- * the fire: auto-rolling it decides how long the creature burned, which is a
- * scene rather than a calculation.
- *
- * Contributes a warning and no commit, so nothing happens even if the GM
- * proceeds. See DESIGN-TIMEJUMP.md §5.
- */
-Hooks.on("astoraTimeAdvance", ({ targets, warnings }) => {
-  for (const { actor, name } of targets) {
-    if (!actor?.statuses?.has(CONDITION_ID)) continue;
-
-    warnings.push({
-      name,
-      severity: "block",
-      text: "Is on fire and owes a Reflex save each round.",
-      detail: `DC ${getDC(actor)}. Not simulated — resolve before advancing.`,
-      actor,
-    });
-  }
 });

@@ -43,8 +43,16 @@
   font-style: italic;
 }
 
-/* Built-in Reflex-save prompt button on the burning card */
-button.pf1-burning-save {
+/* Turn card: the instance list */
+.pf1-burning-card ul {
+  margin: 0 0 0.25em;
+  padding-left: 1.1rem;
+}
+
+/* Free-save, Extinguish and Put Out buttons on the burning cards */
+button.pf1-burning-save,
+button.pf1-burning-extinguish,
+button.pf1-burning-putout {
   display: block;
   width: 100%;
   margin-top: 0.35em;
@@ -57,11 +65,28 @@ button.pf1-burning-save {
   cursor: pointer;
 }
 
-button.pf1-burning-save:hover:not(:disabled) {
+button.pf1-burning-save:hover:not(:disabled),
+button.pf1-burning-extinguish:hover:not(:disabled),
+button.pf1-burning-putout:hover:not(:disabled) {
   box-shadow: 0 0 6px #e67e22;
 }
 
-button.pf1-burning-save:disabled {
+button.pf1-burning-save:disabled,
+button.pf1-burning-extinguish:disabled,
+button.pf1-burning-putout:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+/* Extinguish and Put Out read as a different kind of act from the free save */
+button.pf1-burning-extinguish,
+button.pf1-burning-putout {
+  border-color: #2980b9;
+  background: linear-gradient(#e3eef8, #c4dbef);
+  color: #1b4f72;
+}
+
+button.pf1-burning-extinguish:hover:not(:disabled),
+button.pf1-burning-putout:hover:not(:disabled) {
+  box-shadow: 0 0 6px #5dade2;
 }

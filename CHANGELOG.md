@@ -10,6 +10,13 @@
 ## [Unreleased]
 
 ### Changed
+- **Burning comes in two forms.** *Catching fire* is what you get with no configuration (the token HUD, the sheet, a bare `@Burning`, the API with no options): 1d6 the moment it lands, a free DC 15 Reflex save at the start of each turn, 1d6 each round until put out. A *burn* is what you get by giving any of damage, duration or DC (`@Burning[damage=2d6;duration=1d4;dc=17]`, the API, astora-mod's Buff Delivery): its own damage, a set number of rounds or until put out, nothing on landing, and no free save.
+- **Burning damage lands at the end of the creature's turn**, not on a failed save. A fire that lands partway through a turn first burns at the end of the next one.
+- **Burning stacks like bleed.** Every fire stays on the creature under one condition; only the fiercest deals damage each round (highest average among rolled fires, or a higher fixed amount); a save puts out only the fires it beats; each burn counts its own rounds. Catching fire again deals its 1d6 again but never adds a second caught fire.
+- **Burning from a buff is a burn that ends with the buff.** It deals nothing on switch-on, and no save touches it.
+- **`@Burning[dc=18]` is now a burn** (1d6, DC 18, until put out) rather than catching fire at a higher DC.
+- **Advancing the clock simulates burning** instead of blocking. Each round the creature makes its free save, spends the round on Extinguish, then takes the round's damage; the warning shows the damage and when the flames went out.
+- **The right-click duration on the sheet's burning condition is disabled.** A timer on the shared condition would end every fire at once.
 - **Damage Over Time instances are deleted from their tab.** Each instance's tab carries a trash icon, which asks for confirmation as before; the *Delete instance* link at the bottom of the panel is gone.
 - **The Damage Over Time section keeps its place on the Advanced tab.** Sections added by modules sharing the same sheet kit now sort alphabetically below Script Calls, instead of in whichever order their render hooks finished — which could change every time the sheet redrew.
 - **Compatible with astora-mod's grouped initiative.** A group's turn starts by stepping the tracker through each member, which used to read as a string of ordinary turn changes: members took their turn-end damage over time, and their unrolled burning saves were finalized, while the group's turn was still starting. Now each member still gets its start-of-turn bleed, burning save and damage over time, but its turn end waits for the group's. A tracker reorder that keeps the same combatant current no longer ticks bleed or burning a second time. Without astora-mod nothing changes.
@@ -26,6 +33,9 @@
   unclassifiable. A troll keeps regenerating under a magic-only block.
 
 ### Added
+- **Extinguish.** Every burning card carries an Extinguish button: a full-round action, Reflex +4, rolled as a normal Reflex save (dialog, chat card, dice), once per turn on the creature's own turn (any time out of combat). A card then lists the fires the roll beats, with a **Put out** button that removes them; nothing goes out until it's clicked. With astora-mod's Action Tracker it asks first when the full-round action is gone, and spends it once the roll lands.
+- **Burning tooltip.** Hovering the burning condition on the sheet or token HUD lists each fire.
+- **`describe()` on the burning API**, listing each fire as plain data.
 - **Chat cards can be kept to the creature's owners.** A new world setting, **Owners-only chat cards**, whispers every bleed, burning, and damage over time card (the burning Reflex save card included) to the creature's owners and the GM instead of posting it to everyone. Off by default, so nothing changes until it's switched on.
 - **Damage over time can fire on any interval, not just every round.** A new **Every** control above *Applies On* takes a count and a unit — rounds, minutes, hours or days. Left alone it's every round, exactly as before.
   - **The count takes a formula.** `@item.level` scales a schedule the way it scales damage, with the same live preview as the damage field. Dice aren't supported, since a schedule that rerolls its own spacing isn't useful; anything unusable falls back to one round rather than leaving the instance unable to fire.
@@ -115,6 +125,9 @@
 
 ### Changed
 - All user-facing text (settings, notifications, dialogs, chat cards, enricher labels, tooltips) is now localizable via `game.i18n` (English `lang/en.json` included).
+
+### Removed
+- **The *Reflex save vs. burning* world setting**, `@Burning[nosave]`, and `apply(…, { save: false })`. A burn covers burning with no free save.
 
 ## [0.9.2] - 2026-06-28
 

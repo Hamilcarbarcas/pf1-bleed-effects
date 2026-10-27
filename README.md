@@ -7,7 +7,7 @@ Adds automated, configurable damage-over-time to the Pathfinder 1e **bleed** and
 - **[Damage over time on any item](#damage-over-time)** — a formula, a damage type and a timing, configured on the item's Advanced tab, applied to whoever carries it. Respects DR, energy resistance, hardness, immunity and vulnerability, and rolls animated dice.
 - Adds an enricher to apply specific types and amounts of bleed damage.
 - Prompts for an amount and type when the bleed condition is applied by hand.
-- Adds a **burning** condition (1d6 fire/round) with a turn-start Reflex save to put it out, or no save at all.
+- Adds a **burning** condition in two forms: catching fire (1d6 now and each round, a free Reflex save each turn) and configurable burns (damage, duration, DC). Fires stack, and a full-round Extinguish save puts out what it beats.
 - Burning damage respects the target's fire immunity, resistance, and vulnerability.
 - API functions to apply bleed or burning via scripts/macros.
 - Tool-tip display of active bleed effects.
@@ -256,7 +256,18 @@ Some things worth knowing:
 
 ## Burning
 
-Burning is a separate condition that deals **1d6 fire damage per round**. Unlike bleed, the amount is fixed — the knobs are the **Reflex save DC** (default **15**) to put the fire out, and whether there's a save at all.
+Burning is a separate condition that deals fire damage at the **end of the burning creature's turn**. It comes in two forms, and what you configure decides which one you get.
+
+| | **Catching fire** | **A burn** |
+| --- | --- | --- |
+| What it models | Clothes or hair alight (the core rules) | A monster's Burn ability, a spell, a special attack |
+| Damage | 1d6 fire | whatever you configure (default 1d6) |
+| When it lands | 1d6 **immediately**, then each round | each round only |
+| Free save | DC 15 Reflex at the start of each turn | none |
+| Extinguish (full-round) | Reflex +4 vs. DC 15 | Reflex +4 vs. its DC |
+| Lasts | until put out | a number of rounds, or until put out |
+
+**No configuration means catching fire.** That covers applying the condition by hand (token status icons, the sheet), a bare `@Burning`, the API with no options, and anything else that just switches the condition on. Giving any of damage, duration, or DC makes it a burn.
 
 ### Applying burning
 
@@ -264,87 +275,81 @@ With the `@Burning` text button, the same way as `@Bleed`:
 
 | You type | What it does |
 | --- | --- |
-| `@Burning` | Set on fire; Reflex DC 15 to put out |
-| `@Burning[dc=18]` | Set on fire; Reflex DC 18 to put out |
-| `@Burning[nosave]` | Set on fire with **no save** to put it out |
+| `@Burning` | Catching fire |
+| `@Burning[damage=2d6;duration=1d4;dc=17]` | A burn: 2d6 fire a round for 1d4 rounds, DC 17 to put out |
+| `@Burning[dc=18]` | A burn: 1d6 fire a round until put out, DC 18 |
+| `@Burning[duration=0]` | A burn with every default: 1d6, DC 15, until put out |
 | `@Burning{Immolate}` | Custom label |
-| `@Burning[dc=20]{Immolate}` | Both |
 
-Options after the brackets (separated by `;`):
+Options (separated by `;`), any of which makes it a burn:
 
-- **`dc`** — the Reflex DC to put the fire out. Defaults to 15.
-- **`nosave`** — this burning offers no save. `save=false` does the same thing; a `dc` given alongside it is ignored.
+- **`damage`**: fire damage each round. Defaults to 1d6. `@` values lock to whoever posted the card, and dice roll fresh each round.
+- **`duration`**: how many rounds it burns. A number, or dice rolled once when it lands. `0` or leaving it out means until put out.
+- **`dc`**: the Reflex DC to put it out. Defaults to 15.
 
-**Target** (or select) the creature(s) and click the button. You can also just apply the **burning condition** by hand (token status icons, sheet, etc.) — that uses the default DC 15.
+**Target** (or select) the creature(s) and click the button.
 
-**Catching fire deals damage immediately**, however the fire was lit: `@Burning`, the API, applying the condition by hand, switching on a buff that supplies it, or another module putting it there. A fire-immune creature takes nothing (see [Fire resistance and vulnerability](#fire-resistance-and-vulnerability)).
+The condition's right-click duration on the actor sheet does nothing for burning: each burn carries its own duration, and a timer on the condition would end all of them at once.
 
 ### How a burning turn plays out
 
-At the start of a burning creature's turn it gets a chance to put the fire out with a **Reflex save**:
+At the **start** of the burning creature's turn a card lists what's burning it, with an **Extinguish** button.
 
-- **Success** → the fire goes out, no damage that round.
-- **Failure** → 1d6 fire damage, still burning.
-- **Turn ends with no save rolled** → it takes the 1d6 automatically (treated as no attempt). Burning never stalls waiting on a click.
+- **Catching fire gets a free save.** A DC 15 Reflex save, through a PF1 Roll Requests card when that module is installed, otherwise a **Reflex Save** button on the same card. Success puts that fire out.
+- **Extinguish** is the creature dropping and rolling, or smothering the flames: a **full-round action**, Reflex at **+4**. It's a normal Reflex save, with the roll dialog (even for a GM rolling an NPC), the system's chat card and the dice. Usable once per turn, on the creature's own turn. It's a burn's only way out before its time runs down.
+- **The save doesn't put anything out by itself.** A card follows it, listing which fires the roll beats and which still burn, with a **Put out** button. Click it to remove them, or don't if the GM rules otherwise.
 
-The save prompt comes in one of two forms, chosen automatically:
+At the **end** of the turn, whatever was burning at the start of it and is still burning deals its damage. A free save nobody rolled counts as failed, so burning never stalls waiting on a click. A fire that lands partway through a turn first burns at the end of the creature's next turn.
 
-- **With PF1 Roll Requests installed** → a targeted save-request card the player rolls from.
-- **Without it** → a self-contained card with a **Reflex Save** button the creature's owner clicks (the GM clicks it for NPCs).
+With **astora-mod's Action Tracker**, Extinguish asks before going ahead if the creature's full-round action is already gone, and marks the move and standard slots spent once the roll lands.
 
-Either way the result is applied by the GM's client, the same as bleed.
+Outside combat, Extinguish works whenever it's clicked. It's also on the card posted when the creature is set alight.
 
-### Turning the save off
+### Stacking
 
-Two ways, depending on how broadly you want it:
+Burning stacks like bleed: every fire stays on the creature, under one burning condition. Hover the condition (sheet or token HUD) to see them all.
 
-- **Per burning** — apply it with `@Burning[nosave]`, or `{ save: false }` from the API. Only that fire is inescapable; everything else still gets its save.
-- **Everywhere** — turn off the **Reflex save vs. burning** setting (world scope). This is a master switch: while it's off, *no* burning prompts a save, even one applied without `nosave`.
-
-Either way the outcome is the same as a save that never got rolled: no save card is posted, and the creature simply takes its 1d6 fire damage at the end of each of its turns until you remove the burning condition.
+- **Only the fiercest deals damage each round.** Among the rolled fires, the one with the highest average is rolled; if a fixed amount (say a flat 5) is higher than that roll, the fixed amount is used instead.
+- **A save puts out only what it beats.** An Extinguish roll of 18 puts out a DC 15 and a DC 17, and leaves a DC 20 burning. To be rid of it entirely, beat the highest DC. A natural 20 puts out everything; a natural 1, nothing. The free save only ever puts out the caught fire.
+- **Each burn counts its own rounds**, losing one at the end of each of the creature's turns.
+- **Catching fire again** always deals its 1d6 immediately, but there's only ever one caught fire on a creature, so it doesn't double the damage or the saves afterward.
 
 ### Burning from a buff
 
-You can also drive burning from a **buff** — put `Burning` in the buff's Conditions list, and the damage automation picks it up like any other burning. This is a good fit when something else should govern how long the fire lasts (a spell's duration, a lingering effect), because the buff's own duration ends the burning.
+Put `Burning` in a buff's Conditions list and the buff becomes a burn whose lifetime is the buff's own. This is for fire that only ends when the effect does, such as a spell whose flames can't be put out.
 
-A **Burning Damage** field appears beneath the Conditions list once `Burning` is in it. This is the only place burning's damage can be changed — `@Burning` and the API are always a flat 1d6 — so it's how you'd build a fire fiercer (or feebler) than the standard one. Leave it blank for 1d6. As with bleed, the formula is resolved against the buff each round, so `@item.level` scales with it.
+A **Burning Damage** field appears beneath the Conditions list once `Burning` is in it. Leave it blank for 1d6. The formula is resolved against the buff each round, so `@item.level` scales with it.
 
-Switching the buff on **counts as catching fire** and deals its damage immediately, using the buff's own formula — so a fiercer fire hits as hard on ignition as it does each round afterwards. Note that this is per switch-on: toggling a burning buff off and back on sets the creature alight again.
-
-Burning **doesn't stack**: a creature is on fire or it isn't. If more than one thing has set it alight, the **most recently started** source decides the damage and the others are just along for the ride. (Sources that started in the same round count as simultaneous, and the buff wins.)
-
-Burning supplied this way is always **saveless**, regardless of the DC or the save setting: it deals its damage at the end of each of the creature's turns and ends when the buff does.
-
-That isn't a stylistic choice. A buff puts its condition on an Active Effect attached to the *item*, and PF1 can only remove condition effects that sit directly on the actor — so a save that "put the fire out" wouldn't actually remove anything, and the creature would be told it was safe while still burning. Rather than offer a save it can't honour, the module doesn't offer one. **To put out a buff-driven fire, switch off (or delete) the buff.**
+A buff's burn deals nothing when it switches on, offers no save, and Extinguish leaves it alone. **To end it, switch off (or delete) the buff.** If a fire should be put out by the usual means, apply it with `@Burning`, the API, or astora-mod's Buff Delivery instead of tying it to a buff.
 
 ### Fire resistance and vulnerability
 
-Burning damage is run through the target's fire defences:
+Burning damage is run through the target's fire defenses:
 
-- **Immune to fire** → it can't be set alight at all. The condition isn't applied and a chat card says so.
-- **Fire resistance** → subtracted from each 1d6. Resistances of the same type don't stack, so the **highest** applicable resistance is used, not the sum. Resistance that soaks the whole roll leaves the creature burning but unharmed — resisting flames isn't the same as putting them out.
-- **Vulnerable to fire** → the 1d6 is increased by 50% (rounded down), then resistance is subtracted from that.
+- **Immune to fire**: it can't be set alight at all. The condition isn't applied and a chat card says so.
+- **Fire resistance**: subtracted from each round's damage. Resistances of the same type don't stack, so the **highest** applicable resistance is used, not the sum. Resistance that soaks the whole roll leaves the creature burning but unharmed; resisting flames isn't the same as putting them out.
+- **Vulnerable to fire**: the damage is increased by 50% (rounded down), then resistance is subtracted from that.
 
-The chat card shows what happened — e.g. *"takes 4 fire damage"* followed by *"(vulnerable to fire; 5 resisted)"* — so a reduced number never looks like a miscalculation.
+The chat card shows what happened, for example *"takes 4 fire damage"* followed by *"(vulnerable to fire; 5 resisted)"*, so a reduced number never looks like a miscalculation.
 
-This reads the **Energy Resistance**, **Damage Immunity**, and **Damage Vulnerability** fields on the actor's Combat tab. Note that PF1 doesn't roll resistance up from equipment automatically, so a ring of fire resistance only counts if it's reflected in the actor's own Energy Resistance entries. Free-text resistance entries aren't parsed — only the structured ones with a real damage type selected.
+This reads the **Energy Resistance**, **Damage Immunity**, and **Damage Vulnerability** fields on the actor's Combat tab. PF1 doesn't roll resistance up from equipment automatically, so a ring of fire resistance only counts if it's reflected in the actor's own Energy Resistance entries. Free-text resistance entries aren't parsed, only the structured ones with a real damage type selected.
 
-To go back to flat, bleed-style application, turn off the **Burning respects fire resistance** setting (world scope). Fire immunity is honoured either way.
+To apply burning flat instead, turn off the **Burning respects fire resistance** setting (world scope). Fire immunity is honored either way.
 
 ### Coexisting with Nevela's Automation Suite
 
-Nevela's Automation Suite also ships a `burning` condition (as a visual marker, with no damage automation). If it's active, this module **defers to Nevela's condition** and drives the damage/save automation on top of it — you won't get a duplicate. If Nevela isn't present, this module registers its own `burning` condition.
+Nevela's Automation Suite also ships a `burning` condition (as a visual marker, with no damage automation). If it's active, this module **defers to Nevela's condition** and drives the damage and saves on top of it, so you won't get a duplicate. If Nevela isn't present, this module registers its own `burning` condition.
 
 ### Stopping burning
 
-Remove the **burning condition** like any other, or let a successful Reflex save do it. The stored save DC is cleared right away. If the burning came from a buff, switch the **buff** off instead — clearing the condition alone won't stick, since the buff just re-supplies it.
+Saves and running out of rounds put fires out one by one. Removing the **burning condition** by hand puts out every fire at once, except one supplied by a buff: switch the **buff** off for that.
 
 ## Passing time
 
 Every engine here runs on the combat tracker, so outside combat none of them
 tick. With **astora-mod** installed, advancing the world clock — Simple Calendar,
 the core time controls, the Rest Manager — resolves **bleed** and **damage over
-time** across the elapsed rounds instead of skipping them.
+time** and **burning** across the elapsed rounds instead of skipping them.
 
 - **A warning first.** Any actor with a live instance is listed before the clock
   moves, showing what it takes, what it heals, the components those came from,
@@ -371,11 +376,14 @@ time** across the elapsed rounds instead of skipping them.
 - One `applyDamage` per instance and a single GM-only card for the whole advance,
   however many rounds elapsed.
 
-**Burning is deliberately not simulated.** It raises a blocking warning naming
-the creature and does nothing even if you continue. It *could* run headless — a
-save-less burning already deals its 1d6 without a click — but the Reflex save
-puts the fire *out*, so rolling it unattended decides how long the creature
-burned. That's a scene, not a calculation. Put it out, then advance.
+**Burning is simulated as a creature with nothing better to do would play it.**
+Each round it makes its free save if it caught fire, then spends the round on
+Extinguish (Reflex +4) against whatever a save can put out, then takes the
+round's damage from what's left, and burns count down. Those saves are rolled
+without the roll dialog, from the creature's Reflex total, so situational bonuses
+the dialog would offer aren't counted. The warning shows the fire damage and the
+round the flames went out, or that they were still burning. Fire from a buff
+burns until the buff would have expired.
 
 ## Good to know
 
@@ -384,7 +392,7 @@ burned. That's a scene, not a calculation. Put it out, then advance.
 - Bleed **ignores damage reduction and resistances** and pulls from temporary hit points first.
 - **Healing hit points now ends ordinary bleeding automatically** (see [Healing stops it](#healing-stops-it)). The DC 15 Heal check half of the rule is still manual.
 - Burning respects **fire immunity, resistance, and vulnerability** (see above). Both bleed and burning pull from temporary hit points first.
-- Burning ticks only **in combat** (it needs turn structure for the saves); a creature set on fire outside combat takes only the initial 1d6 until combat begins, and advancing the clock will warn rather than resolve it (see [Passing time](#passing-time)).
+- Burning ticks only **in combat** (it needs turn structure for the saves); outside combat a creature set on fire takes only what lands immediately until combat begins or the clock is advanced (see [Passing time](#passing-time)).
 - **Damage over time is the one that respects everything** — DR, energy resistance, hardness, immunity and vulnerability — because it goes through PF1's own damage pipeline rather than applying a flat number. If you want a recurring effect that a monster's DR can actually blunt, that's the one to reach for; bleed deliberately ignores all of it.
 - **Nevela's Automation Suite composes with damage over time automatically.** Temporary hit point pools, damage absorption, fortification and on-struck reactive triggers all apply to these ticks, with no configuration on either side.
 - **Astora's grouped initiative is understood.** When summons or companions share their leader's turn, each member bleeds, burns and takes damage over time at the start of the group's turn. A turn-end tick, or an unrolled burning save, lands when the group's turn ends, not while the group's turn is still starting. Nothing changes without astora-mod.
@@ -429,21 +437,24 @@ await pf1BleedEffects.clear(token, { force: true });
 Burning has its own namespace on the same module API (also the global `pf1BurningEffects`):
 
 ```js
-// Set a token or actor on fire (default Reflex DC 15), or a custom DC
+// Catching fire: 1d6 now, a free DC 15 save each turn
 await pf1BurningEffects.apply(token);
-await pf1BurningEffects.apply(actor, { dc: 20 });
 
-// No save — 1d6 fire at the end of each of its turns until the condition is removed
-await pf1BurningEffects.apply(token, { save: false });
+// A burn: 2d6 a round for 1d4 rounds, DC 17 to put out
+await pf1BurningEffects.apply(actor, { formula: "2d6", duration: "1d4", dc: 17 });
 
-// Check whether something is on fire
+// A burn until put out
+await pf1BurningEffects.apply(token, { formula: "3d6", duration: 0, dc: 20 });
+
+// What's burning, and whether anything is
+pf1BurningEffects.describe(token);
 pf1BurningEffects.isBurning(token);
 
-// Put the fire out
+// Put every fire out (a buff's fire ends only with the buff)
 await pf1BurningEffects.clear(token);
 ```
 
-`save` defaults to `true`; `dc` is ignored when it's `false`. The **Reflex save vs. burning** world setting still overrides `save: true` when that setting is off.
+Passing any of `formula`, `dc` or `duration` makes it a burn; the others default to 1d6, DC 15, and until put out. `duration` is rounds, a number or a dice formula rolled once; `0` is until put out. `sourceRollData` locks `@` values in the formula to a source, as with bleed.
 
 The same functions are available under `game.modules.get("pf1-bleed-effects").api.burning`.
 

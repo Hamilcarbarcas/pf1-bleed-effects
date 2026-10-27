@@ -261,7 +261,7 @@ export function deepStateOf(effect) {
  * @param {object} rollData
  * @returns {string}
  */
-function resolveFormula(formula, rollData) {
+export function resolveFormula(formula, rollData) {
   try {
     return pf1.dice.RollPF.replaceFormulaData(String(formula), rollData ?? {}, { missing: "0" });
   } catch (err) {

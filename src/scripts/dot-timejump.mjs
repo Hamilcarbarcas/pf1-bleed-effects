@@ -31,6 +31,17 @@ import {
   parseKind,
   rollBleedRound,
 } from "./bleed.mjs";
+import {
+  EXTINGUISH_BONUS,
+  FORM_CATCH,
+  adjustForResistance,
+  getBuffInstances,
+  getStoredInstances,
+  isFireImmune,
+  rollRound,
+  saveBeats,
+  writeStored,
+} from "./burning.mjs";
 import { healingRefusedBy } from "./dot-common.mjs";
 
 const MODULE_ID = "pf1-bleed-effects";
@@ -117,6 +128,97 @@ function reductionCached(actor, inst, memo, value) {
 }
 
 /* -------------------------------------------- *
+ *  Burning
+ * -------------------------------------------- */
+
+/**
+ * The fire a walk starts from, or null when nothing burns. Stored instances are copies the walk
+ * mutates; buff instances last as long as their buff.
+ *
+ * @param {Actor} actor
+ * @returns {object|null}
+ */
+function gatherFire(actor) {
+  if (isFireImmune(actor)) return null;
+  const stored = getStoredInstances(actor);
+  const buffs = getBuffInstances(actor).map((inst) => ({ inst, life: roundsRemaining(inst.source) }));
+  if (!stored.length && !buffs.length) return null;
+  return {
+    stored,
+    buffs,
+    initial: JSON.stringify(stored),
+    saveMod: Number(actor.system?.attributes?.savingThrows?.ref?.total) || 0,
+    damage: 0,
+    resisted: 0,
+    outRound: null,
+  };
+}
+
+/**
+ * Whether anything still burns on a round.
+ *
+ * @param {object} fire
+ * @param {number} round
+ * @returns {boolean}
+ */
+function fireBurns(fire, round) {
+  return fire.stored.length > 0 || fire.buffs.some((b) => b.life >= round);
+}
+
+/**
+ * A Reflex save rolled without the system's dialog: d20 plus the prepared total. Situational
+ * bonuses the dialog would offer are not seen.
+ *
+ * @param {number} mod
+ * @param {number} bonus
+ * @returns {Promise<{total:number, natural:number}>}
+ */
+async function headlessSave(mod, bonus) {
+  const roll = await new Roll("1d20").evaluate({ allowInteractive: false });
+  return { total: roll.total + mod + bonus, natural: roll.total };
+}
+
+/**
+ * One round of burning out of combat (DESIGN-BURNING.md §7): the free save for a catch, the
+ * full-round save at +4 against everything stored, the round's damage from what is left, then
+ * the countdown.
+ *
+ * @param {Actor} actor
+ * @param {object} fire - Mutated.
+ * @param {number} round
+ * @returns {Promise<number>} Damage dealt after resistance.
+ */
+async function burnRound(actor, fire, round) {
+  if (fire.stored.some((i) => i.form === FORM_CATCH)) {
+    const { total, natural } = await headlessSave(fire.saveMod, 0);
+    fire.stored = fire.stored.filter((i) => i.form !== FORM_CATCH || !saveBeats(i, total, natural));
+  }
+
+  if (fire.stored.length) {
+    const { total, natural } = await headlessSave(fire.saveMod, EXTINGUISH_BONUS);
+    fire.stored = fire.stored.filter((i) => !saveBeats(i, total, natural));
+  }
+
+  const live = [...fire.stored, ...fire.buffs.filter((b) => b.life >= round).map((b) => b.inst)];
+  let dealt = 0;
+  if (live.length) {
+    const result = adjustForResistance(actor, await rollRound(actor, live));
+    fire.damage += result.total;
+    fire.resisted += result.resisted;
+    dealt = result.total;
+  }
+
+  fire.stored = fire.stored.filter((i) => {
+    if (i.rounds === null) return true;
+    i.rounds -= 1;
+    return i.rounds > 0;
+  });
+
+  if (!fireBurns(fire, round + 1)) fire.outRound = round;
+  return dealt;
+}
+
+/* -------------------------------------------- *
  *  The walk
  * -------------------------------------------- */
 
@@ -154,7 +256,8 @@ export async function previewSpan(actor, rounds, ceiling) {
   // Bleed is a separate engine with its own storage, and has no duration — it
   // runs until it is healed or cleared, so it never retires the walk on its own.
   const bleeds = getBleedEffects(actor);
-  if (!entries.length && !bleeds.length) return null;
+  const fire = gatherFire(actor);
+  if (!entries.length && !bleeds.length && !fire) return null;
 
   const hp = actor.system?.attributes?.hp ?? {};
   const maxHp = Number(hp.max) || 0;
@@ -192,9 +295,12 @@ export async function previewSpan(actor, rounds, ceiling) {
   /** Bleed has no interval — it is every round, from the first. */
   let bleedRound = bleeds.length ? 1 : Infinity;
 
+  /** Burning is every round too, until it is out. */
+  let fireRound = fire ? 1 : Infinity;
+
   for (let steps = 0; ; steps++) {
     // The next round at which anything at all happens, retiring whatever has outlived its effect.
-    let round = bleedRound;
+    let round = Math.min(bleedRound, fireRound);
     for (const cursor of schedules) {
       if (cursor.round === null) continue;
       if (cursor.round > cursor.entry.life) {
@@ -235,6 +341,16 @@ export async function previewSpan(actor, rounds, ceiling) {
         }
       }
       bleedRound = round + 1;
+    }
+
+    if (round === fireRound) {
+      const dealt = await burnRound(actor, fire, round);
+      if (dealt > 0) {
+        currentHp -= dealt;
+        damageTaken += dealt;
+        if (currentHp < 0 && deathRound === null) deathRound = round;
+      }
+      fireRound = fire.outRound === null ? round + 1 : Infinity;
     }
 
     for (const cursor of schedules) {
@@ -287,18 +403,26 @@ export async function previewSpan(actor, rounds, ceiling) {
     }
 
     if (deathRound !== null) break;                     // stop at the crossing
-    if (damageTaken === 0 && currentHp >= maxHp) break; // healed up, nothing hurting
+    // Healed up, nothing hurting. A fire still burning keeps going: a save may yet put it out.
+    if (damageTaken === 0 && currentHp >= maxHp && fireRound === Infinity) break;
   }
 
   const buckets = [...totals.values()].filter((b) => b.applied > 0);
-  if (!buckets.length && !bleedTotals.size) return null;
+  if (!buckets.length && !bleedTotals.size && !fire) return null;
 
-  const healingOnly = !bleedTotals.size && buckets.every((b) => b.entry.inst.kind === "healing");
+  const healingOnly = !bleedTotals.size && !fire && buckets.every((b) => b.entry.inst.kind === "healing");
 
   return {
     actor,
     buckets,
     bleedTotals,
+    fire: fire && {
+      damage: fire.damage,
+      resisted: fire.resisted,
+      outRound: fire.outRound,
+      stored: fire.stored,
+      changed: JSON.stringify(fire.stored) !== fire.initial,
+    },
     rounds,
     simulated,
     truncated: stoppedEarly && simulated < rounds,
@@ -325,6 +449,16 @@ function describe(preview) {
   const bleed = [...(preview.bleedTotals ?? [])]
     .filter(([, total]) => total > 0)
     .map(([kind, total]) => game.i18n.format("BLD.TimeJump.Bleed", { n: total, kind: kindLabel(kind) }));
+
+  if (preview.fire) {
+    const { damage, resisted, outRound } = preview.fire;
+    let line = game.i18n.format("BLD.TimeJump.Fire", { n: damage });
+    if (resisted > 0) line += game.i18n.format("BLD.TimeJump.Reduced", { n: resisted });
+    line += outRound === null
+      ? game.i18n.localize("BLD.TimeJump.FireOn")
+      : game.i18n.format("BLD.TimeJump.FireOut", { round: outRound });
+    bleed.push(line);
+  }
 
   return bleed.concat(preview.buckets.map((b) => {
     const { inst, item } = b.entry;
@@ -379,6 +513,15 @@ async function commit(preview) {
       await applyBleedTotals(actor, preview.bleedTotals);
     } catch (err) {
       console.error(`${MODULE_ID} | time jump: could not apply bleed to ${actor?.name}`, err);
+    }
+  }
+
+  if (preview.fire) {
+    try {
+      if (preview.fire.damage > 0) await actor.applyDamage(preview.fire.damage);
+      if (preview.fire.changed) await writeStored(actor, preview.fire.stored);
+    } catch (err) {
+      console.error(`${MODULE_ID} | time jump: could not apply burning to ${actor?.name}`, err);
     }
   }
 
