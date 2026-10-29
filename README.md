@@ -105,7 +105,7 @@ Details worth knowing:
 
 ## Damage over time
 
-Every item sheet has a **Damage Over Time** section on its **Advanced** tab. Add an instance and, while that item is live on a creature, it deals damage (or heals) on the turn boundary you choose.
+Every item sheet has a **Damage Over Time** section on its **Advanced** tab. Add an instance and, while that item is live on a creature, it deals damage (or heals) on the turn boundary you choose. On an item with no instances the section is hidden: click **Show N more sections** at the foot of the tab to reveal it.
 
 This is separate from bleed and burning in every respect — different storage, different engine, no interaction. A buff can carry all three.
 

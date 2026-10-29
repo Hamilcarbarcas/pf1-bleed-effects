@@ -31,6 +31,7 @@
 - **Healing over time carries its source item into `applyDamage`**, so suppression can tell an
   extraordinary regeneration from a supernatural one instead of treating every DoT heal as
   unclassifiable. A troll keeps regenerating under a magic-only block.
+- The **Damage Over Time** section is hidden on items with no instances. A **Show N more sections** line at the foot of the Advanced tab reveals it (shared sheet kit 1.7.0).
 
 ### Added
 - **Extinguish.** Every burning card carries an Extinguish button: a full-round action, Reflex +4, rolled as a normal Reflex save (dialog, chat card, dice), once per turn on the creature's own turn (any time out of combat). A card then lists the fires the roll beats, with a **Put out** button that removes them; nothing goes out until it's clicked. With astora-mod's Action Tracker it asks first when the full-round action is gone, and spends it once the roll lands.

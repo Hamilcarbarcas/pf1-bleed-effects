@@ -489,6 +489,7 @@ async function onRenderItemSheet(app, html) {
     body: ".bld-dot-body",
     configured: readInstances(item).length > 0,
     badge: readInstances(item).length || null,
+    niche: true,
   });
 }
 
